@@ -8,13 +8,13 @@ use crate::{
         circuit::{Chip, Layouter, Value},
         plonk::Error,
     },
-    AssignedCondition, AssignedValue, ColumnTags, MainGateColumn,
+    AssignedCondition, AssignedValue,
 };
 use halo2wrong::{
     utils::{big_to_fe, decompose, fe_to_big, power_of_two},
     RegionCtx,
 };
-use std::iter;
+use std::{fmt::Debug, iter};
 
 /// `Term`s are input arguments for the current rows that is about to be
 /// constrained in the main gate equation. Three types or terms can be expected.
@@ -145,14 +145,27 @@ pub enum CombinationOptionCommon<F: FieldExt> {
     CombineToNextAdd(F),
 }
 
+/// `ColumnTags` is an helper to find special columns that are frequently used
+/// across gates
+pub trait ColumnTags: Into<usize> {
+    /// Width of gate
+    const WIDTH: usize;
+    /// Next row accumulator
+    fn next() -> Self;
+    /// First column
+    fn first() -> Self;
+    /// Column that last term should in linear combination
+    fn last_term() -> Self;
+}
+
 /// Instructions covers many basic constaints such as assignments, logical and
 /// arithmetic operations. Also includes general purpose `combine` and  `apply`
 /// functions to let user to build custom constaints using this main gate
-pub trait MainGateInstructions<F: FieldExt, const WIDTH: usize>: Chip<F> {
+pub trait MainGateInstructions<F: FieldExt>: Chip<F> + Clone + Debug {
     /// Options for implementors to implement some more custom functionalities
     type CombinationOption: From<CombinationOptionCommon<F>>;
-    /// Position related customisations should be defined as ['MainGateColumn']
-    type MainGateColumn: ColumnTags<Self::MainGateColumn>;
+    /// Position related customisations
+    type ColumnTags: ColumnTags;
 
     /// Expect an assigned value to be equal to a public input
     fn expose_public(
@@ -187,7 +200,7 @@ pub trait MainGateInstructions<F: FieldExt, const WIDTH: usize>: Chip<F> {
         ctx: &mut RegionCtx<'_, F>,
         unassigned: Value<F>,
     ) -> Result<AssignedValue<F>, Error> {
-        self.assign_to_column(ctx, unassigned, Self::MainGateColumn::first())
+        self.assign_to_column(ctx, unassigned, Self::ColumnTags::first())
     }
 
     /// Assigns a value to the column that is allocated for accumulation purpose
@@ -196,7 +209,7 @@ pub trait MainGateInstructions<F: FieldExt, const WIDTH: usize>: Chip<F> {
         ctx: &mut RegionCtx<'_, F>,
         unassigned: Value<F>,
     ) -> Result<AssignedValue<F>, Error> {
-        self.assign_to_column(ctx, unassigned, Self::MainGateColumn::next())
+        self.assign_to_column(ctx, unassigned, Self::ColumnTags::next())
     }
 
     /// Assigns new witness to the specified column
@@ -204,7 +217,7 @@ pub trait MainGateInstructions<F: FieldExt, const WIDTH: usize>: Chip<F> {
         &self,
         ctx: &mut RegionCtx<'_, F>,
         value: Value<F>,
-        column: Self::MainGateColumn,
+        column: Self::ColumnTags,
     ) -> Result<AssignedValue<F>, Error>;
 
     /// Assigns given value and enforces that the value is `0` or `1`
@@ -1015,7 +1028,7 @@ pub trait MainGateInstructions<F: FieldExt, const WIDTH: usize>: Chip<F> {
         let terms: Vec<Term<F>> = terms.iter().filter(|e| !e.is_zero()).cloned().collect();
 
         // Last cell will be allocated for result or intermediate sums.
-        let chunk_width: usize = WIDTH - 1;
+        let chunk_width: usize = Self::ColumnTags::WIDTH - 1;
         let number_of_chunks = (terms.len() - 1) / chunk_width + 1;
 
         // `remaining` at first set to the sum of terms.
@@ -1023,7 +1036,7 @@ pub trait MainGateInstructions<F: FieldExt, const WIDTH: usize>: Chip<F> {
         // `result` will be assigned in the first iteration.
         // First iteration is guaranteed to be present disallowing empty
         let mut result = None;
-        let last_term_index: usize = MainGateColumn::last_term_index();
+        let last_term_index: usize = Self::ColumnTags::last_term().into();
 
         let mut assigned: Vec<AssignedValue<F>> = vec![];
         for (i, chunk) in terms.chunks(chunk_width).enumerate() {
@@ -1061,7 +1074,7 @@ pub trait MainGateInstructions<F: FieldExt, const WIDTH: usize>: Chip<F> {
                 chunk
                     .iter()
                     .cloned()
-                    .chain(iter::repeat(Term::Zero).take(WIDTH - chunk.len() - 1))
+                    .chain(iter::repeat(Term::Zero).take(Self::ColumnTags::WIDTH - chunk.len() - 1))
                     .chain(iter::once(intermediate)),
                 constant,
                 combination_option.into(),
@@ -1112,12 +1125,14 @@ pub trait MainGateInstructions<F: FieldExt, const WIDTH: usize>: Chip<F> {
         // Remove zero iterms
         let terms: Vec<Term<F>> = terms.iter().filter(|e| !e.is_zero()).cloned().collect();
 
-        let one_liner = terms.len() <= WIDTH;
+        let one_liner = terms.len() <= Self::ColumnTags::WIDTH;
 
         // Apply the first chunk
         self.apply(
             ctx,
-            terms[..WIDTH.min(terms.len())].iter().cloned(),
+            terms[..Self::ColumnTags::WIDTH.min(terms.len())]
+                .iter()
+                .cloned(),
             constant,
             if one_liner {
                 CombinationOptionCommon::OneLinerAdd
@@ -1129,9 +1144,9 @@ pub trait MainGateInstructions<F: FieldExt, const WIDTH: usize>: Chip<F> {
 
         // And the rest if there are more terms
         if !one_liner {
-            let chunk_width: usize = WIDTH - 1;
-            let mut intermediate_sum = Term::compose(&terms[..WIDTH], constant);
-            let terms = &terms[WIDTH..];
+            let chunk_width: usize = Self::ColumnTags::WIDTH - 1;
+            let mut intermediate_sum = Term::compose(&terms[..Self::ColumnTags::WIDTH], constant);
+            let terms = &terms[Self::ColumnTags::WIDTH..];
             let number_of_chunks = (terms.len() - 1) / chunk_width + 1;
 
             for (i, chunk) in terms.chunks(chunk_width).enumerate() {
@@ -1140,7 +1155,10 @@ pub trait MainGateInstructions<F: FieldExt, const WIDTH: usize>: Chip<F> {
                     chunk
                         .iter()
                         .cloned()
-                        .chain(iter::repeat(Term::Zero).take(WIDTH - chunk.len() - 1))
+                        .chain(
+                            iter::repeat(Term::Zero)
+                                .take(Self::ColumnTags::WIDTH - chunk.len() - 1),
+                        )
                         .chain(iter::once(Term::Unassigned(intermediate_sum, F::one()))),
                     F::zero(),
                     if i == number_of_chunks - 1 {

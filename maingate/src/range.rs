@@ -15,6 +15,7 @@ use halo2wrong::RegionCtx;
 use num_integer::Integer;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::fmt::Debug;
 
 /// Maximum number of cells in one line enabled with composition selector
 pub const NUMBER_OF_LOOKUP_LIMBS: usize = 4;
@@ -58,7 +59,7 @@ impl<F: FieldExt> Chip<F> for RangeChip<F> {
 }
 
 /// Generic chip interface for bitwise ranging values
-pub trait RangeInstructions<F: FieldExt>: Chip<F> {
+pub trait RangeInstructions<F: FieldExt>: Chip<F> + Clone + Debug {
     /// Assigns new witness
     fn assign(
         &self,

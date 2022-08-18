@@ -1,13 +1,14 @@
 use std::rc::Rc;
 
-use super::{AssignedInteger, AssignedLimb, UnassignedInteger};
+use super::{AssignedInteger, AssignedLimb};
 use crate::instructions::{IntegerInstructions, Range};
 use crate::rns::{Common, Integer, Rns};
 use halo2::arithmetic::FieldExt;
 use halo2::plonk::Error;
-use maingate::{halo2, AssignedCondition, AssignedValue, MainGateInstructions, RegionCtx};
-use maingate::{MainGate, MainGateConfig};
-use maingate::{RangeChip, RangeConfig};
+use maingate::halo2::circuit::Value;
+use maingate::{
+    halo2, AssignedCondition, AssignedValue, MainGateInstructions, RangeInstructions, RegionCtx,
+};
 
 mod add;
 mod assert_in_field;
@@ -20,44 +21,32 @@ mod mul;
 mod reduce;
 mod square;
 
-/// Configuration for [`IntegerChip`]
-#[derive(Clone, Debug)]
-pub struct IntegerConfig {
-    /// Configuration for [`RangeChip`]
-    range_config: RangeConfig,
-    /// Configuration for [`MainGate`]
-    main_gate_config: MainGateConfig,
-}
-
-impl IntegerConfig {
-    // Creates a new [`IntegerConfig`] from a [`RangeConfig`] and a
-    /// [`MainGateConfig`]
-    pub fn new(range_config: RangeConfig, main_gate_config: MainGateConfig) -> Self {
-        Self {
-            range_config,
-            main_gate_config,
-        }
-    }
-}
-
 /// Chip for integer instructions
 #[derive(Clone, Debug)]
 pub struct IntegerChip<
     W: FieldExt,
     N: FieldExt,
+    MainGate: MainGateInstructions<N>,
+    RangeChip: RangeInstructions<N>,
     const NUMBER_OF_LIMBS: usize,
     const BIT_LEN_LIMB: usize,
 > {
-    /// RangeChip
-    range_chip: RangeChip<N>,
     /// MainGate
-    main_gate: MainGate<N>,
+    main_gate: MainGate,
+    /// RangeChip
+    range_chip: RangeChip,
     /// Residue number system used to represent the integers
     rns: Rc<Rns<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>,
 }
 
-impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    IntegerChip<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<
+        W: FieldExt,
+        N: FieldExt,
+        MainGate: MainGateInstructions<N>,
+        RangeChip: RangeInstructions<N>,
+        const NUMBER_OF_LIMBS: usize,
+        const BIT_LEN_LIMB: usize,
+    > IntegerChip<W, N, MainGate, RangeChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
 {
     fn sublimb_bit_len() -> usize {
         let number_of_lookup_limbs = 4;
@@ -74,13 +63,10 @@ impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB:
     ) -> AssignedInteger<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB> {
         AssignedInteger::new(Rc::clone(&self.rns), limbs, native_value)
     }
-}
 
-impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    IntegerInstructions<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
-    for IntegerChip<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
-{
-    fn reduce_external<T: FieldExt>(
+    /// Tries to apply reduction to an [`AssignedInteger`] that is not in this
+    /// wrong field
+    pub fn reduce_external<T: FieldExt>(
         &self,
         ctx: &mut RegionCtx<'_, N>,
         // TODO: external integer might have different parameter settings
@@ -89,11 +75,36 @@ impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB:
         let to_be_reduced = self.new_assigned_integer(a.limbs(), a.native().clone());
         self.reduce(ctx, &to_be_reduced)
     }
+}
+
+impl<
+        W: FieldExt,
+        N: FieldExt,
+        MainGate: MainGateInstructions<N>,
+        RangeChip: RangeInstructions<N>,
+        const NUMBER_OF_LIMBS: usize,
+        const BIT_LEN_LIMB: usize,
+    > IntegerInstructions<W, N>
+    for IntegerChip<W, N, MainGate, RangeChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+{
+    type MainGate = MainGate;
+
+    type Integer = Integer<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>;
+
+    type AssignedInteger = AssignedInteger<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>;
+
+    fn main_gate(&self) -> &Self::MainGate {
+        &self.main_gate
+    }
+
+    fn integer(&self, fe: W) -> Integer<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB> {
+        Integer::from_fe(fe, Rc::clone(&self.rns))
+    }
 
     fn assign_integer(
         &self,
         ctx: &mut RegionCtx<'_, N>,
-        integer: UnassignedInteger<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
+        integer: Value<Integer<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>,
         range: Range,
     ) -> Result<AssignedInteger<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
         self.assign_integer_generic(ctx, integer, range)
@@ -519,39 +530,44 @@ impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB:
     }
 }
 
-impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    IntegerChip<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<
+        W: FieldExt,
+        N: FieldExt,
+        MainGate: MainGateInstructions<N>,
+        RangeChip: RangeInstructions<N>,
+        const NUMBER_OF_LIMBS: usize,
+        const BIT_LEN_LIMB: usize,
+    > IntegerChip<W, N, MainGate, RangeChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
 {
     /// Create new ['IntegerChip'] with the configuration and a shared [`Rns`]
-    pub fn new(config: IntegerConfig, rns: Rc<Rns<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>) -> Self {
+    pub fn new(
+        main_gate: MainGate,
+        range_chip: RangeChip,
+        rns: Rc<Rns<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>,
+    ) -> Self {
         IntegerChip {
-            range_chip: RangeChip::new(config.range_config),
-            main_gate: MainGate::new(config.main_gate_config),
+            main_gate,
+            range_chip,
             rns,
         }
     }
 
     /// Getter for [`RangeChip`]
-    pub fn range_chip(&self) -> &RangeChip<N> {
+    pub fn range_chip(&self) -> &RangeChip {
         &self.range_chip
     }
 
     /// Getter for [`MainGate`]
-    pub fn main_gate(&self) -> &MainGate<N> {
+    pub fn main_gate(&self) -> &MainGate {
         &self.main_gate
-    }
-
-    /// Getter for [`Rns`]
-    pub fn rns(&self) -> Rc<Rns<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>> {
-        Rc::clone(&self.rns)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{IntegerChip, IntegerConfig, IntegerInstructions, Range};
+    use super::{IntegerChip, IntegerInstructions, Range};
     use crate::rns::{Common, Integer, Rns};
-    use crate::{FieldExt, UnassignedInteger};
+    use crate::FieldExt;
     use halo2::circuit::{Layouter, SimpleFloorPlanner, Value};
     use halo2::plonk::{Circuit, ConstraintSystem, Error};
     use maingate::mock_prover_verify;
@@ -576,15 +592,6 @@ mod tests {
         let rns = rns();
         let k: u32 = (rns.bit_len_lookup + 1) as u32;
         (rns, k)
-    }
-
-    impl<W: FieldExt, N: FieldExt, const BIT_LEN_LIMB: usize>
-        From<Integer<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>
-        for UnassignedInteger<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
-    {
-        fn from(integer: Integer<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>) -> Self {
-            UnassignedInteger(Value::known(integer))
-        }
     }
 
     pub(crate) struct TestRNS<W: FieldExt, N: FieldExt, const BIT_LEN_LIMB: usize> {
@@ -679,8 +686,14 @@ mod tests {
             let main_gate_config = MainGate::<N>::configure(meta);
 
             let overflow_bit_lens = rns::<W, N, BIT_LEN_LIMB>().overflow_lengths();
-            let composition_bit_len =
-                IntegerChip::<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>::sublimb_bit_len();
+            let composition_bit_len = IntegerChip::<
+                W,
+                N,
+                MainGate<N>,
+                RangeChip<N>,
+                NUMBER_OF_LIMBS,
+                BIT_LEN_LIMB,
+            >::sublimb_bit_len();
             let range_config = RangeChip::<N>::configure(
                 meta,
                 &main_gate_config,
@@ -694,11 +707,12 @@ mod tests {
             }
         }
 
-        fn integer_chip_config(&self) -> IntegerConfig {
-            IntegerConfig {
-                range_config: self.range_config.clone(),
-                main_gate_config: self.main_gate_config.clone(),
-            }
+        fn main_gate<N: FieldExt>(&self) -> MainGate<N> {
+            MainGate::new(self.main_gate_config.clone())
+        }
+
+        fn range_chip<N: FieldExt>(&self) -> RangeChip<N> {
+            RangeChip::new(self.range_config.clone())
         }
 
         fn config_range<N: FieldExt>(&self, layouter: &mut impl Layouter<N>) -> Result<(), Error> {
@@ -719,8 +733,8 @@ mod tests {
             }
 
             impl<W: FieldExt, N: FieldExt,  const BIT_LEN_LIMB: usize> $circuit_name<W, N, BIT_LEN_LIMB> {
-                fn integer_chip(&self, config:TestCircuitConfig) -> IntegerChip<W, N, NUMBER_OF_LIMBS,BIT_LEN_LIMB>{
-                    IntegerChip::<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>::new(config.integer_chip_config(), Rc::clone(&self.rns))
+                fn integer_chip(&self, config:TestCircuitConfig) -> IntegerChip<W, N, MainGate<N>, RangeChip<N>, NUMBER_OF_LIMBS, BIT_LEN_LIMB> {
+                    IntegerChip::new(config.main_gate(), config.range_chip(), Rc::clone(&self.rns))
                 }
 
                 fn tester(&self) -> TestRNS<W, N, BIT_LEN_LIMB> {
@@ -762,12 +776,12 @@ mod tests {
                     let offset = 0;
                     let ctx = &mut RegionCtx::new(region, offset);
                     let a = t.max_in_remainder_range();
-                    integer_chip.assign_integer(ctx, a.into(), Range::Remainder)?;
+                    integer_chip.assign_integer(ctx, Value::known(a), Range::Remainder)?;
                     // should fail
                     // let a = t.new_from_big(rns.max_remainder.clone() + 1usize);
                     // integer_chip.assign_integer(ctx, a.into(), Range::Remainder)?;
                     let a = t.max_in_operand_range();
-                    integer_chip.assign_integer(ctx, a.into(), Range::Operand)?;
+                    integer_chip.assign_integer(ctx, Value::known(a), Range::Operand)?;
                     // should fail
                     // let a = t.new_from_big(rns.max_operand.clone() + 1usize);
                     // integer_chip.assign_integer(ctx, a.into(), Range::Operand)?
@@ -799,12 +813,12 @@ mod tests {
                     let reduced = reduced.result;
                     let overflows = &integer_chip.assign_integer(
                         ctx,
-                        Value::known(unreduced).into(),
+                        Value::known(unreduced),
                         Range::Unreduced,
                     )?;
                     let reduced_0 = &integer_chip.assign_integer(
                         ctx,
-                        Value::known(reduced).into(),
+                        Value::known(reduced),
                         Range::Remainder,
                     )?;
                     let reduced_1 = &integer_chip.reduce(ctx, overflows)?;
@@ -835,8 +849,8 @@ mod tests {
                     let ctx = &mut RegionCtx::new(region, offset);
                     let a = t.rand_in_operand_range();
                     let b = t.rand_in_operand_range();
-                    let a = &integer_chip.assign_integer(ctx, a.into(), Range::Operand)?;
-                    let b = &integer_chip.assign_integer(ctx, b.into(), Range::Operand)?;
+                    let a = &integer_chip.assign_integer(ctx, Value::known(a), Range::Operand)?;
+                    let b = &integer_chip.assign_integer(ctx, Value::known(b), Range::Operand)?;
                     integer_chip.assert_not_equal(ctx, a, b)?;
                     integer_chip.assert_equal(ctx, a, a)?;
                     integer_chip.assert_not_zero(ctx, a)?;
@@ -868,9 +882,10 @@ mod tests {
                     let c = (a.value() * b.value()) % &self.rns.wrong_modulus;
                     let c = t.new_from_big(c);
 
-                    let a = &integer_chip.assign_integer(ctx, a.into(), Range::Operand)?;
-                    let b = &integer_chip.assign_integer(ctx, b.into(), Range::Operand)?;
-                    let c_0 = &integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                    let a = &integer_chip.assign_integer(ctx, Value::known(a), Range::Operand)?;
+                    let b = &integer_chip.assign_integer(ctx, Value::known(b), Range::Operand)?;
+                    let c_0 =
+                        &integer_chip.assign_integer(ctx, Value::known(c), Range::Remainder)?;
                     let c_1 = &integer_chip.mul(ctx, a, b)?;
                     assert_eq!(c_1.max_val(), self.rns.max_remainder);
 
@@ -882,9 +897,10 @@ mod tests {
                     let c = (a.value() * b.value()) % &self.rns.wrong_modulus;
                     let c = t.new_from_big(c);
 
-                    let a = &integer_chip.assign_integer(ctx, a.into(), Range::Unreduced)?;
-                    let b = &integer_chip.assign_integer(ctx, b.into(), Range::Unreduced)?;
-                    let c_0 = &integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                    let a = &integer_chip.assign_integer(ctx, Value::known(a), Range::Unreduced)?;
+                    let b = &integer_chip.assign_integer(ctx, Value::known(b), Range::Unreduced)?;
+                    let c_0 =
+                        &integer_chip.assign_integer(ctx, Value::known(c), Range::Remainder)?;
                     let c_1 = &integer_chip.mul(ctx, a, b)?;
                     assert_eq!(c_1.max_val(), self.rns.max_remainder);
 
@@ -896,8 +912,9 @@ mod tests {
                     let c = (a.value() * b.value()) % &self.rns.wrong_modulus;
                     let c = t.new_from_big(c);
 
-                    let a = &integer_chip.assign_integer(ctx, a.into(), Range::Unreduced)?;
-                    let c_0 = &integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                    let a = &integer_chip.assign_integer(ctx, Value::known(a), Range::Unreduced)?;
+                    let c_0 =
+                        &integer_chip.assign_integer(ctx, Value::known(c), Range::Remainder)?;
                     let c_1 = &integer_chip.mul_constant(ctx, a, &b)?;
                     assert_eq!(c_1.max_val(), self.rns.max_remainder);
 
@@ -910,8 +927,9 @@ mod tests {
                     let a = t.new_from_big(fe_to_big(a));
                     let inv = t.new_from_big(fe_to_big(inv));
 
-                    let a = &integer_chip.assign_integer(ctx, a.into(), Range::Remainder)?;
-                    let inv = &integer_chip.assign_integer(ctx, inv.into(), Range::Remainder)?;
+                    let a = &integer_chip.assign_integer(ctx, Value::known(a), Range::Remainder)?;
+                    let inv =
+                        &integer_chip.assign_integer(ctx, Value::known(inv), Range::Remainder)?;
                     integer_chip.mul_into_one(ctx, a, inv)?;
 
                     Ok(())
@@ -941,8 +959,9 @@ mod tests {
                     let c = (a.value() * a.value()) % &self.rns.wrong_modulus;
                     let c = t.new_from_big(c);
 
-                    let a = &integer_chip.assign_integer(ctx, a.into(), Range::Operand)?;
-                    let c_0 = &integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                    let a = &integer_chip.assign_integer(ctx, Value::known(a), Range::Operand)?;
+                    let c_0 =
+                        &integer_chip.assign_integer(ctx, Value::known(c), Range::Remainder)?;
                     let c_1 = &integer_chip.square(ctx, a)?;
                     assert_eq!(c_1.max_val(), self.rns.max_remainder);
 
@@ -953,8 +972,9 @@ mod tests {
                     let c = (a.value() * a.value()) % &self.rns.wrong_modulus;
                     let c = t.new_from_big(c);
 
-                    let a = &integer_chip.assign_integer(ctx, a.into(), Range::Unreduced)?;
-                    let c_0 = &integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                    let a = &integer_chip.assign_integer(ctx, Value::known(a), Range::Unreduced)?;
+                    let c_0 =
+                        &integer_chip.assign_integer(ctx, Value::known(c), Range::Remainder)?;
                     let c_1 = &integer_chip.square(ctx, a)?;
                     assert_eq!(c_1.max_val(), self.rns.max_remainder);
 
@@ -984,7 +1004,7 @@ mod tests {
                     let offset = 0;
                     let ctx = &mut RegionCtx::new(region, offset);
                     let a = t.rand_in_field();
-                    let a = &integer_chip.assign_integer(ctx, a.into(), Range::Remainder)?;
+                    let a = &integer_chip.assign_integer(ctx, Value::known(a), Range::Remainder)?;
                     integer_chip.assert_in_field(ctx, a)?;
                     // must fail
                     // let a = t.new_from_big(rns.wrong_modulus.clone());
@@ -1019,31 +1039,30 @@ mod tests {
                     let inv = a.invert().unwrap();
 
                     // 1 / a
-                    let a = &integer_chip.assign_integer(
-                        ctx,
-                        Value::known(a).into(),
-                        Range::Remainder,
-                    )?;
-                    let inv_0 = &integer_chip.assign_integer(
-                        ctx,
-                        Value::known(inv).into(),
-                        Range::Remainder,
-                    )?;
+                    let a = &integer_chip.assign_integer(ctx, Value::known(a), Range::Remainder)?;
+                    let inv_0 =
+                        &integer_chip.assign_integer(ctx, Value::known(inv), Range::Remainder)?;
                     let (inv_1, cond) = integer_chip.invert(ctx, a)?;
                     integer_chip.assert_equal(ctx, inv_0, &inv_1)?;
-                    main_gate.assert_zero(ctx, &cond)?;
+                    MainGateInstructions::assert_zero(&main_gate, ctx, &cond)?;
 
                     // 1 / 0
-                    let zero =
-                        integer_chip.assign_integer(ctx, t.zero().into(), Range::Remainder)?;
+                    let zero = integer_chip.assign_integer(
+                        ctx,
+                        Value::known(t.zero()),
+                        Range::Remainder,
+                    )?;
                     let (must_be_one, cond) = integer_chip.invert(ctx, &zero)?;
                     integer_chip.assert_strict_one(ctx, &must_be_one)?;
                     main_gate.assert_one(ctx, &cond)?;
 
                     // 1 / p
                     let wrong_modulus = t.new_from_limbs(&self.rns.wrong_modulus_decomposed);
-                    let modulus =
-                        integer_chip.assign_integer(ctx, wrong_modulus.into(), Range::Remainder)?;
+                    let modulus = integer_chip.assign_integer(
+                        ctx,
+                        Value::known(wrong_modulus),
+                        Range::Remainder,
+                    )?;
                     let (must_be_one, cond) = integer_chip.invert(ctx, &modulus)?;
                     integer_chip.assert_strict_one(ctx, &must_be_one)?;
                     main_gate.assert_one(ctx, &cond)?;
@@ -1060,30 +1079,23 @@ mod tests {
                     let b = t.rand_in_remainder_range();
 
                     let c = a.mul(&b.invert().unwrap()).result;
-                    let a = &integer_chip.assign_integer(
-                        ctx,
-                        Value::known(a).into(),
-                        Range::Remainder,
-                    )?;
-                    let b = &integer_chip.assign_integer(
-                        ctx,
-                        Value::known(b).into(),
-                        Range::Remainder,
-                    )?;
-                    let c_0 = &integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                    let a = &integer_chip.assign_integer(ctx, Value::known(a), Range::Remainder)?;
+                    let b = &integer_chip.assign_integer(ctx, Value::known(b), Range::Remainder)?;
+                    let c_0 =
+                        &integer_chip.assign_integer(ctx, Value::known(c), Range::Remainder)?;
                     let (c_1, cond) = integer_chip.div(ctx, a, b)?;
                     integer_chip.assert_equal(ctx, c_0, &c_1)?;
-                    main_gate.assert_zero(ctx, &cond)?;
+                    MainGateInstructions::assert_zero(&main_gate, ctx, &cond)?;
 
                     // 0 / b
                     let (c_1, cond) = integer_chip.div(ctx, &zero, b)?;
                     integer_chip.assert_zero(ctx, &c_1)?;
-                    main_gate.assert_zero(ctx, &cond)?;
+                    MainGateInstructions::assert_zero(&main_gate, ctx, &cond)?;
 
                     // p / b
                     let (c_1, cond) = integer_chip.div(ctx, &modulus, b)?;
                     integer_chip.assert_zero(ctx, &c_1)?;
-                    main_gate.assert_zero(ctx, &cond)?;
+                    MainGateInstructions::assert_zero(&main_gate, ctx, &cond)?;
 
                     // a / 0
                     let (must_be_self, cond) = integer_chip.div(ctx, a, &zero)?;
@@ -1135,11 +1147,14 @@ mod tests {
 
                         let c_in_field = (a.value() + b.value()) % &self.rns.wrong_modulus;
                         let c_in_field = t.new_from_big(c_in_field);
-                        let a = integer_chip.assign_integer(ctx, a.into(), Range::Remainder)?;
-                        let b = integer_chip.assign_integer(ctx, b.into(), Range::Remainder)?;
+                        let a =
+                            integer_chip.assign_integer(ctx, Value::known(a), Range::Remainder)?;
+                        let b =
+                            integer_chip.assign_integer(ctx, Value::known(b), Range::Remainder)?;
 
                         let c_0 = &integer_chip.add(ctx, &a, &b)?;
-                        let c_1 = integer_chip.assign_integer(ctx, c.into(), Range::Unreduced)?;
+                        let c_1 =
+                            integer_chip.assign_integer(ctx, Value::known(c), Range::Unreduced)?;
 
                         assert_eq!(a.max_val() + b.max_val(), c_0.max_val());
 
@@ -1149,7 +1164,7 @@ mod tests {
                         let c_0 = integer_chip.reduce(ctx, c_0)?;
                         let c_1 = integer_chip.assign_integer(
                             ctx,
-                            c_in_field.into(),
+                            Value::known(c_in_field),
                             Range::Remainder,
                         )?;
                         integer_chip.assert_equal(ctx, &c_0, &c_1)?;
@@ -1166,10 +1181,12 @@ mod tests {
                         let c_in_field = (a.value() + b.value()) % &self.rns.wrong_modulus;
                         let c_in_field = t.new_from_big(c_in_field);
 
-                        let a = integer_chip.assign_integer(ctx, a.into(), Range::Remainder)?;
+                        let a =
+                            integer_chip.assign_integer(ctx, Value::known(a), Range::Remainder)?;
 
                         let c_0 = &integer_chip.add_constant(ctx, &a, &b)?;
-                        let c_1 = integer_chip.assign_integer(ctx, c.into(), Range::Unreduced)?;
+                        let c_1 =
+                            integer_chip.assign_integer(ctx, Value::known(c), Range::Unreduced)?;
                         assert_eq!(a.max_val() + b.value(), c_0.max_val());
                         integer_chip.assert_equal(ctx, c_0, &c_1)?;
 
@@ -1177,7 +1194,7 @@ mod tests {
                         let c_0 = integer_chip.reduce(ctx, c_0)?;
                         let c_1 = integer_chip.assign_integer(
                             ctx,
-                            c_in_field.into(),
+                            Value::known(c_in_field),
                             Range::Remainder,
                         )?;
                         integer_chip.assert_equal(ctx, &c_0, &c_1)?;
@@ -1187,7 +1204,8 @@ mod tests {
                     {
                         // go beyond unreduced range
                         let a = t.rand_in_remainder_range();
-                        let mut a = integer_chip.assign_integer(ctx, a.into(), Range::Remainder)?;
+                        let mut a =
+                            integer_chip.assign_integer(ctx, Value::known(a), Range::Remainder)?;
 
                         for _ in 0..10 {
                             let c = a
@@ -1195,8 +1213,7 @@ mod tests {
                                 .map(|a| (a.value() * 2usize) % &self.rns.wrong_modulus)
                                 .map(|c| t.new_from_big(c));
                             a = integer_chip.add(ctx, &a, &a)?;
-                            let c_1 =
-                                integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                            let c_1 = integer_chip.assign_integer(ctx, c, Range::Remainder)?;
                             let c_0 = integer_chip.reduce(ctx, &a)?;
                             integer_chip.assert_equal(ctx, &a, &c_1)?;
                             integer_chip.assert_equal(ctx, &c_0, &c_1)?;
@@ -1212,11 +1229,22 @@ mod tests {
                             let c = (a.value() + b.value()) % self.rns.wrong_modulus.clone();
                             let c = t.new_from_big(c);
 
-                            let a = integer_chip.assign_integer(ctx, a.into(), Range::Unreduced)?;
-                            let b = integer_chip.assign_integer(ctx, b.into(), Range::Unreduced)?;
+                            let a = integer_chip.assign_integer(
+                                ctx,
+                                Value::known(a),
+                                Range::Unreduced,
+                            )?;
+                            let b = integer_chip.assign_integer(
+                                ctx,
+                                Value::known(b),
+                                Range::Unreduced,
+                            )?;
                             let c_0 = &integer_chip.add(ctx, &a, &b)?;
-                            let c_1 =
-                                integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                            let c_1 = integer_chip.assign_integer(
+                                ctx,
+                                Value::known(c),
+                                Range::Remainder,
+                            )?;
                             assert_eq!(a.max_val() + b.max_val(), c_0.max_val());
                             integer_chip.assert_equal(ctx, c_0, &c_1)?;
 
@@ -1238,12 +1266,15 @@ mod tests {
                         let c = (a_norm - b_norm) % self.rns.wrong_modulus.clone();
                         let c = t.new_from_big(c);
 
-                        let a = integer_chip.assign_integer(ctx, a.into(), Range::Remainder)?;
-                        let b = integer_chip.assign_integer(ctx, b.into(), Range::Remainder)?;
+                        let a =
+                            integer_chip.assign_integer(ctx, Value::known(a), Range::Remainder)?;
+                        let b =
+                            integer_chip.assign_integer(ctx, Value::known(b), Range::Remainder)?;
                         let aux = b.make_aux();
 
                         let c_0 = &integer_chip.sub(ctx, &a, &b)?;
-                        let c_1 = integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                        let c_1 =
+                            integer_chip.assign_integer(ctx, Value::known(c), Range::Remainder)?;
                         assert_eq!(a.max_val() + aux.value(), c_0.max_val());
                         integer_chip.assert_equal(ctx, c_0, &c_1)?;
                     }
@@ -1259,12 +1290,15 @@ mod tests {
                         let c = (a_norm - b_norm) % self.rns.wrong_modulus.clone();
                         let c = t.new_from_big(c);
 
-                        let a = integer_chip.assign_integer(ctx, a.into(), Range::Unreduced)?;
-                        let b = integer_chip.assign_integer(ctx, b.into(), Range::Unreduced)?;
+                        let a =
+                            integer_chip.assign_integer(ctx, Value::known(a), Range::Unreduced)?;
+                        let b =
+                            integer_chip.assign_integer(ctx, Value::known(b), Range::Unreduced)?;
                         let aux = b.make_aux();
 
                         let c_0 = &integer_chip.sub(ctx, &a, &b)?;
-                        let c_1 = integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                        let c_1 =
+                            integer_chip.assign_integer(ctx, Value::known(c), Range::Remainder)?;
                         assert_eq!(a.max_val() + aux.value(), c_0.max_val());
                         integer_chip.assert_equal(ctx, c_0, &c_1)?;
                     }
@@ -1272,7 +1306,8 @@ mod tests {
                     {
                         // go beyond unreduced range
                         let a = t.rand_in_remainder_range();
-                        let mut a = integer_chip.assign_integer(ctx, a.into(), Range::Remainder)?;
+                        let mut a =
+                            integer_chip.assign_integer(ctx, Value::known(a), Range::Remainder)?;
 
                         for _ in 0..10 {
                             let b = t.rand_in_unreduced_range();
@@ -1286,11 +1321,14 @@ mod tests {
                                 .map(|a_norm| (a_norm - b_norm) % self.rns.wrong_modulus.clone())
                                 .map(|c| t.new_from_big(c));
 
-                            let b = integer_chip.assign_integer(ctx, b.into(), Range::Unreduced)?;
+                            let b = integer_chip.assign_integer(
+                                ctx,
+                                Value::known(b),
+                                Range::Unreduced,
+                            )?;
 
                             let c_0 = &integer_chip.sub(ctx, &a, &b)?;
-                            let c_1 =
-                                integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                            let c_1 = integer_chip.assign_integer(ctx, c, Range::Remainder)?;
                             integer_chip.assert_equal(ctx, c_0, &c_1)?;
                             a = c_0.clone();
                         }
@@ -1303,11 +1341,13 @@ mod tests {
                         let c = self.rns.wrong_modulus.clone() - a_norm;
                         let c = t.new_from_big(c);
 
-                        let a = integer_chip.assign_integer(ctx, a.into(), Range::Unreduced)?;
+                        let a =
+                            integer_chip.assign_integer(ctx, Value::known(a), Range::Unreduced)?;
                         let aux = a.make_aux();
 
                         let c_0 = &integer_chip.neg(ctx, &a)?;
-                        let c_1 = integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                        let c_1 =
+                            integer_chip.assign_integer(ctx, Value::known(c), Range::Remainder)?;
                         assert_eq!(aux.value(), c_0.max_val());
                         integer_chip.assert_equal(ctx, c_0, &c_1)?;
                     }
@@ -1318,10 +1358,12 @@ mod tests {
                         let c = (a.value() * 2usize) % self.rns.wrong_modulus.clone();
                         let c = t.new_from_big(c);
 
-                        let a = integer_chip.assign_integer(ctx, a.into(), Range::Unreduced)?;
+                        let a =
+                            integer_chip.assign_integer(ctx, Value::known(a), Range::Unreduced)?;
 
                         let c_0 = &integer_chip.mul2(ctx, &a)?;
-                        let c_1 = integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                        let c_1 =
+                            integer_chip.assign_integer(ctx, Value::known(c), Range::Remainder)?;
                         assert_eq!(a.max_val() * 2usize, c_0.max_val());
                         integer_chip.assert_equal(ctx, c_0, &c_1)?;
                     }
@@ -1332,9 +1374,11 @@ mod tests {
                         let c = (a.value() * 3usize) % self.rns.wrong_modulus.clone();
                         let c = t.new_from_big(c);
 
-                        let a = integer_chip.assign_integer(ctx, a.into(), Range::Unreduced)?;
+                        let a =
+                            integer_chip.assign_integer(ctx, Value::known(a), Range::Unreduced)?;
                         let c_0 = &integer_chip.mul3(ctx, &a)?;
-                        let c_1 = integer_chip.assign_integer(ctx, c.into(), Range::Remainder)?;
+                        let c_1 =
+                            integer_chip.assign_integer(ctx, Value::known(c), Range::Remainder)?;
                         assert_eq!(a.max_val() * 3usize, c_0.max_val());
                         integer_chip.assert_equal(ctx, c_0, &c_1)?;
                     }
@@ -1365,8 +1409,8 @@ mod tests {
 
                     // select second operand when condision is zero
 
-                    let a = t.rand_in_remainder_range().into();
-                    let b = t.rand_in_remainder_range().into();
+                    let a = Value::known(t.rand_in_remainder_range());
+                    let b = Value::known(t.rand_in_remainder_range());
                     let cond = N::zero();
                     let cond = Value::known(cond);
 
@@ -1381,8 +1425,8 @@ mod tests {
 
                     // select first operand when condision is one
 
-                    let a = t.rand_in_remainder_range().into();
-                    let b = t.rand_in_remainder_range().into();
+                    let a = Value::known(t.rand_in_remainder_range());
+                    let b = Value::known(t.rand_in_remainder_range());
                     let cond = N::one();
                     let cond = Value::known(cond);
 
@@ -1397,7 +1441,7 @@ mod tests {
 
                     // select constant operand when condision is zero
 
-                    let a = t.rand_in_remainder_range().into();
+                    let a = Value::known(t.rand_in_remainder_range());
                     let b = t.rand_in_remainder_range();
                     let cond = N::zero();
                     let cond = Value::known(cond);
@@ -1406,14 +1450,14 @@ mod tests {
                     let cond: AssignedCondition<N> = main_gate.assign_value(ctx, cond)?;
                     let selected = integer_chip.select_or_assign(ctx, &a, &b, &cond)?;
                     let b_assigned =
-                        integer_chip.assign_integer(ctx, b.into(), Range::Remainder)?;
+                        integer_chip.assign_integer(ctx, Value::known(b), Range::Remainder)?;
                     integer_chip.assert_equal(ctx, &b_assigned, &selected)?;
                     integer_chip.assert_strict_equal(ctx, &b_assigned, &selected)?;
                     assert_eq!(a.max_val(), selected.max_val());
 
                     // select non constant operand when condision is zero
 
-                    let a = t.rand_in_remainder_range().into();
+                    let a = Value::known(t.rand_in_remainder_range());
                     let b = t.rand_in_remainder_range();
                     let cond = N::one();
                     let cond = Value::known(cond);
@@ -1450,8 +1494,11 @@ mod tests {
                     for _ in 0..2 {
                         let integer = t.rand_in_field();
                         let integer_big = integer.value();
-                        let assigned =
-                            integer_chip.assign_integer(ctx, integer.into(), Range::Remainder)?;
+                        let assigned = integer_chip.assign_integer(
+                            ctx,
+                            Value::known(integer),
+                            Range::Remainder,
+                        )?;
                         let decomposed = integer_chip.decompose(ctx, &assigned)?;
                         let expected = decompose_big::<W>(
                             integer_big,
@@ -1463,7 +1510,7 @@ mod tests {
                             if expected != W::zero() {
                                 main_gate.assert_one(ctx, c)?;
                             } else {
-                                main_gate.assert_zero(ctx, c)?;
+                                MainGateInstructions::assert_zero(&main_gate, ctx, c)?;
                             }
                         }
                     }
@@ -1491,14 +1538,20 @@ mod tests {
                     let ctx = &mut RegionCtx::new(region, offset);
 
                     let integer = t.new_from_big(big_uint::from(20u64));
-                    let assigned =
-                        integer_chip.assign_integer(ctx, integer.into(), Range::Remainder)?;
+                    let assigned = integer_chip.assign_integer(
+                        ctx,
+                        Value::known(integer),
+                        Range::Remainder,
+                    )?;
                     let assigned_sign = integer_chip.sign(ctx, &assigned)?;
-                    main_gate.assert_zero(ctx, &assigned_sign)?;
+                    MainGateInstructions::assert_zero(&main_gate, ctx, &assigned_sign)?;
 
                     let integer = t.new_from_big(big_uint::from(21u64));
-                    let assigned =
-                        integer_chip.assign_integer(ctx, integer.into(), Range::Remainder)?;
+                    let assigned = integer_chip.assign_integer(
+                        ctx,
+                        Value::known(integer),
+                        Range::Remainder,
+                    )?;
                     let assigned_sign = integer_chip.sign(ctx, &assigned)?;
                     main_gate.assert_one(ctx, &assigned_sign)?;
 

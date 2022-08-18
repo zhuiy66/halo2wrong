@@ -3,15 +3,18 @@ use super::GeneralEccChip;
 use crate::halo2;
 use halo2::arithmetic::{CurveAffine, FieldExt};
 use halo2::plonk::Error;
+use integer::maingate::MainGateInstructions;
 use integer::maingate::RegionCtx;
 use integer::IntegerInstructions;
 
-impl<
-        Emulated: CurveAffine,
-        N: FieldExt,
-        const NUMBER_OF_LIMBS: usize,
-        const BIT_LEN_LIMB: usize,
-    > GeneralEccChip<Emulated, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<Emulated, N, MainGate, BaseFieldChip, ScalarFieldChip>
+    GeneralEccChip<Emulated, N, MainGate, BaseFieldChip, ScalarFieldChip>
+where
+    Emulated: CurveAffine,
+    N: FieldExt,
+    MainGate: MainGateInstructions<N>,
+    BaseFieldChip: IntegerInstructions<Emulated::Base, N>,
+    ScalarFieldChip: IntegerInstructions<Emulated::Scalar, N, MainGate = BaseFieldChip::MainGate>,
 {
     /// Optimized point addition algorithm
     ///
@@ -21,9 +24,9 @@ impl<
     pub(crate) fn _add_incomplete_unsafe(
         &self,
         ctx: &mut RegionCtx<'_, N>,
-        a: &AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-        b: &AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-    ) -> Result<AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
+        a: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+        b: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
         let ch = self.base_field_chip();
 
         // lambda = b_y - a_y / b_x - a_x
@@ -51,8 +54,8 @@ impl<
     pub(crate) fn _double_incomplete(
         &self,
         ctx: &mut RegionCtx<'_, N>,
-        point: &AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-    ) -> Result<AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
+        point: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
         let ch = self.base_field_chip();
 
         // lambda = (3 * a_x^2) / 2 * a_y
@@ -79,9 +82,9 @@ impl<
     pub(crate) fn _ladder_incomplete(
         &self,
         ctx: &mut RegionCtx<'_, N>,
-        to_double: &AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-        to_add: &AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-    ) -> Result<AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
+        to_double: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+        to_add: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
         let ch = self.base_field_chip();
 
         // (P + Q) + P

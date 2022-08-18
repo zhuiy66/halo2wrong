@@ -7,8 +7,13 @@ use maingate::{
     RegionCtx, Term,
 };
 
-impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    IntegerChip<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<W, N, MainGate, RangeChip, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
+    IntegerChip<W, N, MainGate, RangeChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+where
+    W: FieldExt,
+    N: FieldExt,
+    MainGate: MainGateInstructions<N>,
+    RangeChip: RangeInstructions<N>,
 {
     pub(super) fn constrain_binary_crt(
         &self,
@@ -86,9 +91,9 @@ impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB:
 
         // Apply ranges
         let range_chip = self.range_chip();
-        let result = self.assign_integer(ctx, result.into(), Range::Remainder)?;
+        let result = self.assign_integer(ctx, result, Range::Remainder)?;
 
-        let quotient = &self.assign_integer(ctx, quotient.into(), Range::MulQuotient)?;
+        let quotient = &self.assign_integer(ctx, quotient, Range::MulQuotient)?;
         let residues = witness
             .residues()
             .iter()
@@ -206,8 +211,8 @@ impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB:
 
         // Apply ranges
         let range_chip = self.range_chip();
-        let quotient = &self.assign_integer(ctx, quotient.into(), Range::MulQuotient)?;
-        let result = self.assign_integer(ctx, result.into(), Range::Remainder)?;
+        let quotient = &self.assign_integer(ctx, quotient, Range::MulQuotient)?;
+        let result = self.assign_integer(ctx, result, Range::Remainder)?;
         let residues = witness
             .residues()
             .iter()
@@ -276,7 +281,7 @@ impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB:
 
         // Apply ranges
         let range_chip = self.range_chip();
-        let quotient = &self.assign_integer(ctx, quotient.into(), Range::MulQuotient)?;
+        let quotient = &self.assign_integer(ctx, quotient, Range::MulQuotient)?;
         let residues = witness
             .residues()
             .iter()

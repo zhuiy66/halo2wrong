@@ -1,5 +1,5 @@
-use super::{AssignedPoint, GeneralEccChip};
-use crate::integer::{AssignedInteger, IntegerInstructions};
+use super::{AssignedPoint, EccInstructions, GeneralEccChip};
+use crate::integer::IntegerInstructions;
 use crate::maingate::{AssignedCondition, MainGateInstructions};
 use crate::{halo2, Selector, Table, Windowed};
 use group::ff::PrimeField;
@@ -7,12 +7,14 @@ use halo2::arithmetic::{CurveAffine, FieldExt};
 use halo2::plonk::Error;
 use integer::maingate::RegionCtx;
 
-impl<
-        Emulated: CurveAffine,
-        N: FieldExt,
-        const NUMBER_OF_LIMBS: usize,
-        const BIT_LEN_LIMB: usize,
-    > GeneralEccChip<Emulated, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<Emulated, N, MainGate, BaseFieldChip, ScalarFieldChip>
+    GeneralEccChip<Emulated, N, MainGate, BaseFieldChip, ScalarFieldChip>
+where
+    Emulated: CurveAffine,
+    N: FieldExt,
+    MainGate: MainGateInstructions<N>,
+    BaseFieldChip: IntegerInstructions<Emulated::Base, N>,
+    ScalarFieldChip: IntegerInstructions<Emulated::Scalar, N, MainGate = BaseFieldChip::MainGate>,
 {
     /// Pads scalar up to the next window_size mul
     fn pad(
@@ -58,10 +60,10 @@ impl<
     fn make_incremental_table(
         &self,
         region: &mut RegionCtx<'_, N>,
-        aux: &AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-        point: &AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
+        aux: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+        point: &AssignedPoint<BaseFieldChip::AssignedInteger>,
         window_size: usize,
-    ) -> Result<Table<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
+    ) -> Result<Table<BaseFieldChip::AssignedInteger>, Error> {
         let table_size = 1 << window_size;
         let mut table = vec![aux.clone()];
         for i in 0..(table_size - 1) {
@@ -75,8 +77,8 @@ impl<
         &self,
         region: &mut RegionCtx<'_, N>,
         selector: &Selector<N>,
-        table: &Table<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-    ) -> Result<AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
+        table: &Table<BaseFieldChip::AssignedInteger>,
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
         let number_of_points = table.0.len();
         let number_of_selectors = selector.0.len();
         assert_eq!(number_of_points, 1 << number_of_selectors);
@@ -97,10 +99,10 @@ impl<
     pub fn mul(
         &self,
         region: &mut RegionCtx<'_, N>,
-        point: &AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-        scalar: &AssignedInteger<Emulated::Scalar, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
+        point: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+        scalar: &ScalarFieldChip::AssignedInteger,
         window_size: usize,
-    ) -> Result<AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
         assert!(window_size > 0);
         let aux = self.get_mul_aux(window_size, 1)?;
 
@@ -136,11 +138,11 @@ impl<
         &self,
         region: &mut RegionCtx<'_, N>,
         pairs: Vec<(
-            AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-            AssignedInteger<Emulated::Scalar, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
+            AssignedPoint<BaseFieldChip::AssignedInteger>,
+            ScalarFieldChip::AssignedInteger,
         )>,
         window_size: usize,
-    ) -> Result<AssignedPoint<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
         assert!(window_size > 0);
         assert!(!pairs.is_empty());
         let aux = self.get_mul_aux(window_size, pairs.len())?;
@@ -165,7 +167,7 @@ impl<
         let number_of_windows = windowed_scalars[0].0.len();
 
         let mut binary_aux = aux.to_add.clone();
-        let tables: Vec<Table<Emulated::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>> = pairs
+        let tables: Vec<Table<BaseFieldChip::AssignedInteger>> = pairs
             .iter()
             .enumerate()
             .map(|(i, (point, _))| {

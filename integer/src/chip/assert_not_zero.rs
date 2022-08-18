@@ -1,12 +1,19 @@
 use super::IntegerChip;
 use crate::{AssignedInteger, FieldExt};
 use halo2::plonk::Error;
-use maingate::{halo2, CombinationOptionCommon, MainGateInstructions, RegionCtx, Term};
+use maingate::{
+    halo2, CombinationOptionCommon, MainGateInstructions, RangeInstructions, RegionCtx, Term,
+};
 use num_bigint::BigUint as big_uint;
 use std::convert::TryInto;
 
-impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    IntegerChip<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<W, N, MainGate, RangeChip, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
+    IntegerChip<W, N, MainGate, RangeChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+where
+    W: FieldExt,
+    N: FieldExt,
+    MainGate: MainGateInstructions<N>,
+    RangeChip: RangeInstructions<N>,
 {
     pub(super) fn assert_not_zero_generic(
         &self,

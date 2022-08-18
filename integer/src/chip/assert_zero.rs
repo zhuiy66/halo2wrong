@@ -5,8 +5,13 @@ use halo2::plonk::Error;
 
 use maingate::{halo2, AssignedValue, MainGateInstructions, RangeInstructions, RegionCtx, Term};
 
-impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    IntegerChip<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<W, N, MainGate, RangeChip, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
+    IntegerChip<W, N, MainGate, RangeChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+where
+    W: FieldExt,
+    N: FieldExt,
+    MainGate: MainGateInstructions<N>,
+    RangeChip: RangeInstructions<N>,
 {
     pub(super) fn assert_zero_generic(
         &self,

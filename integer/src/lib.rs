@@ -12,7 +12,7 @@ use num_bigint::BigUint as big_uint;
 use rns::Rns;
 use std::rc::Rc;
 
-pub use chip::{IntegerChip, IntegerConfig};
+pub use chip::IntegerChip;
 pub use instructions::{IntegerInstructions, Range};
 pub use maingate;
 pub use maingate::halo2;
@@ -106,24 +106,6 @@ impl<F: FieldExt> AssignedLimb<F> {
 
     fn add_fe(&self, other: F) -> big_uint {
         self.add_big(fe_to_big(other))
-    }
-}
-
-/// Witness integer that is about to be assigned.
-#[derive(Debug, Clone)]
-pub struct UnassignedInteger<
-    W: FieldExt,
-    N: FieldExt,
-    const NUMBER_OF_LIMBS: usize,
-    const BIT_LEN_LIMB: usize,
->(Value<Integer<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>);
-
-impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    From<Value<Integer<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>>
-    for UnassignedInteger<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
-{
-    fn from(integer: Value<Integer<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>) -> Self {
-        UnassignedInteger(integer)
     }
 }
 

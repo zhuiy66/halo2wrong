@@ -1,13 +1,16 @@
-use super::{AssignedPoint, BaseFieldEccChip};
-use crate::maingate::{AssignedCondition, AssignedValue, MainGateInstructions};
-use crate::{halo2, Selector, Table, Windowed};
-use group::ff::PrimeField;
+use super::{AssignedPoint, BaseFieldEccChip, NativeInstructions};
+use crate::maingate::{AssignedCondition, AssignedValue};
+use crate::{halo2, EccInstructions, Selector, Table, Windowed};
 use halo2::arithmetic::CurveAffine;
 use halo2::plonk::Error;
-use integer::maingate::RegionCtx;
+use integer::maingate::{MainGateInstructions, RegionCtx};
+use integer::IntegerInstructions;
 
-impl<C: CurveAffine, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    BaseFieldEccChip<C, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<C, BaseFieldChip> BaseFieldEccChip<C, BaseFieldChip>
+where
+    C: CurveAffine,
+    BaseFieldChip: IntegerInstructions<C::Base, C::ScalarExt>,
+    BaseFieldChip::MainGate: NativeInstructions<C::Scalar>,
 {
     /// Pads scalar up to the next window_size mul
     fn pad(
@@ -16,14 +19,15 @@ impl<C: CurveAffine, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
         bits: &mut Vec<AssignedCondition<C::Scalar>>,
         window_size: usize,
     ) -> Result<(), Error> {
-        use group::ff::Field;
         assert_eq!(bits.len(), C::Scalar::NUM_BITS as usize);
 
         // TODO: This is a tmp workaround. Instead of padding with zeros we can use a
         // shorter ending window.
         let padding_offset = (window_size - (bits.len() % window_size)) % window_size;
         let zeros: Vec<AssignedCondition<C::Scalar>> = (0..padding_offset)
-            .map(|_| self.main_gate().assign_constant(ctx, C::Scalar::zero()))
+            .map(|_| {
+                MainGateInstructions::assign_constant(self.main_gate(), ctx, C::Scalar::zero())
+            })
             .collect::<Result<_, Error>>()?;
         bits.extend(zeros);
         bits.reverse();
@@ -54,10 +58,10 @@ impl<C: CurveAffine, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
     fn make_incremental_table(
         &self,
         ctx: &mut RegionCtx<'_, C::Scalar>,
-        aux: &AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-        point: &AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
+        aux: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+        point: &AssignedPoint<BaseFieldChip::AssignedInteger>,
         window_size: usize,
-    ) -> Result<Table<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
+    ) -> Result<Table<BaseFieldChip::AssignedInteger>, Error> {
         let table_size = 1 << window_size;
         let mut table = vec![aux.clone()];
         for i in 0..(table_size - 1) {
@@ -71,8 +75,8 @@ impl<C: CurveAffine, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
         &self,
         ctx: &mut RegionCtx<'_, C::Scalar>,
         selector: &Selector<C::Scalar>,
-        table: &Table<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-    ) -> Result<AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
+        table: &Table<BaseFieldChip::AssignedInteger>,
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
         let number_of_points = table.0.len();
         let number_of_selectors = selector.0.len();
         assert_eq!(number_of_points, 1 << number_of_selectors);
@@ -93,10 +97,10 @@ impl<C: CurveAffine, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
     pub fn mul(
         &self,
         ctx: &mut RegionCtx<'_, C::Scalar>,
-        point: &AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
+        point: &AssignedPoint<BaseFieldChip::AssignedInteger>,
         scalar: &AssignedValue<C::Scalar>,
         window_size: usize,
-    ) -> Result<AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
         assert!(window_size > 0);
         let aux = self.get_mul_aux(window_size, 1)?;
 
@@ -133,11 +137,11 @@ impl<C: CurveAffine, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
         &self,
         ctx: &mut RegionCtx<'_, C::Scalar>,
         pairs: Vec<(
-            AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
+            AssignedPoint<BaseFieldChip::AssignedInteger>,
             AssignedValue<C::Scalar>,
         )>,
         window_size: usize,
-    ) -> Result<AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
         assert!(window_size > 0);
         assert!(!pairs.is_empty());
         let aux = self.get_mul_aux(window_size, pairs.len())?;
@@ -160,7 +164,7 @@ impl<C: CurveAffine, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
         let number_of_windows = windowed_scalars[0].0.len();
 
         let mut binary_aux = aux.to_add.clone();
-        let tables: Vec<Table<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>> = pairs
+        let tables: Vec<Table<BaseFieldChip::AssignedInteger>> = pairs
             .iter()
             .enumerate()
             .map(|(i, (point, _))| {

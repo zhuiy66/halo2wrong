@@ -4,8 +4,13 @@ use crate::{AssignedInteger, FieldExt};
 use halo2::plonk::Error;
 use maingate::{halo2, AssignedValue, MainGateInstructions, RangeInstructions, RegionCtx, Term};
 
-impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    IntegerChip<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<W, N, MainGate, RangeChip, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
+    IntegerChip<W, N, MainGate, RangeChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+where
+    W: FieldExt,
+    N: FieldExt,
+    MainGate: MainGateInstructions<N>,
+    RangeChip: RangeInstructions<N>,
 {
     /// Reduces an [`AssignedInteger`] if any of its limbs values is greater
     /// than the [`Rns`] `max_unreduced_limb`.
@@ -88,7 +93,7 @@ impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB:
 
         // Apply ranges
         let range_chip = self.range_chip();
-        let result = self.assign_integer(ctx, result.into(), Range::Remainder)?;
+        let result = self.assign_integer(ctx, result, Range::Remainder)?;
         let quotient = range_chip.assign(ctx, quotient, Self::sublimb_bit_len(), BIT_LEN_LIMB)?;
         let residues = witness
             .residues()

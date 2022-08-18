@@ -12,24 +12,13 @@ use crate::halo2::arithmetic::FieldExt;
 use crate::halo2::circuit::{Chip, Layouter};
 use crate::halo2::plonk::{Advice, Column, ConstraintSystem, Error, Fixed, Instance};
 use crate::halo2::poly::Rotation;
-use crate::instructions::{CombinationOptionCommon, MainGateInstructions, Term};
+use crate::instructions::{ColumnTags, CombinationOptionCommon, MainGateInstructions, Term};
 use crate::{AssignedCondition, AssignedValue};
 use halo2wrong::halo2::circuit::Value;
 use halo2wrong::RegionCtx;
 use std::{iter, marker::PhantomData};
 
 const WIDTH: usize = 5;
-
-/// `ColumnTags` is an helper to find special columns that are frequently used
-/// across gates
-pub trait ColumnTags<Column> {
-    /// Next row accumulator
-    fn next() -> Column;
-    /// First column
-    fn first() -> Column;
-    /// Index that last term should in linear combination
-    fn last_term_index() -> usize;
-}
 
 /// Enumerates columns of the main gate
 #[derive(Debug)]
@@ -46,7 +35,15 @@ pub enum MainGateColumn {
     E = 4,
 }
 
-impl ColumnTags<MainGateColumn> for MainGateColumn {
+impl From<MainGateColumn> for usize {
+    fn from(column: MainGateColumn) -> Self {
+        column as usize
+    }
+}
+
+impl ColumnTags for MainGateColumn {
+    const WIDTH: usize = WIDTH;
+
     fn first() -> Self {
         MainGateColumn::A
     }
@@ -55,8 +52,8 @@ impl ColumnTags<MainGateColumn> for MainGateColumn {
         MainGateColumn::E
     }
 
-    fn last_term_index() -> usize {
-        Self::first() as usize
+    fn last_term() -> Self {
+        Self::first()
     }
 }
 
@@ -129,9 +126,9 @@ impl<F: FieldExt> From<CombinationOptionCommon<F>> for CombinationOption<F> {
     }
 }
 
-impl<F: FieldExt> MainGateInstructions<F, WIDTH> for MainGate<F> {
+impl<F: FieldExt> MainGateInstructions<F> for MainGate<F> {
     type CombinationOption = CombinationOption<F>;
-    type MainGateColumn = MainGateColumn;
+    type ColumnTags = MainGateColumn;
 
     fn expose_public(
         &self,

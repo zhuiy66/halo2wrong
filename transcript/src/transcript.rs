@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::{
     halo2::{
         arithmetic::{CurveAffine, FieldExt},
@@ -7,47 +9,65 @@ use crate::{
     maingate::{AssignedValue, RegionCtx},
 };
 use ecc::{
-    halo2::circuit::Chip,
+    integer::AssignedInteger,
     maingate::{big_to_fe, decompose, fe_to_big},
-    AssignedPoint, BaseFieldEccChip,
+    AssignedPoint, EccInstructions,
 };
 use group::ff::PrimeField;
 use poseidon::Spec;
 
 /// `PointRepresentation` will encode point with an implemented strategy
-/// TODO: Generalize `ecc_chip` with `EccInstrucitons`
-pub trait PointRepresentation<
-    C: CurveAffine<ScalarExt = N>,
+pub trait PointRepresentation<C, N>: Default
+where
+    C: CurveAffine,
     N: FieldExt,
-    const NUMBER_OF_LIMBS: usize,
-    const BIT_LEN_LIMB: usize,
->: Default
 {
+    type EccChip: EccInstructions<C, N>;
+
     fn encode_assigned(
         ctx: &mut RegionCtx<'_, N>,
-        ecc_chip: &BaseFieldEccChip<C, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-        point: &AssignedPoint<C::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
+        ecc_chip: &Self::EccChip,
+        point: &<Self::EccChip as EccInstructions<C, N>>::AssignedPoint,
     ) -> Result<Vec<AssignedValue<N>>, Error>;
 
-    /// Returns `None` if `point` is identity
+    /// Returns `None` if `point` is not encodable.
     fn encode(point: C) -> Option<Vec<N>>;
 }
 
 /// `LimbRepresentation` encodes point as `[[limbs_of(x)],  sign_of(y)]`
-#[derive(Default)]
-pub struct LimbRepresentation;
+pub struct LimbRepresentation<
+    C,
+    N,
+    EccChip,
+    const NUMBER_OF_LIMBS: usize,
+    const BIT_LEN_LIMB: usize,
+>(PhantomData<(C, N, EccChip)>);
 
-impl<
-        C: CurveAffine<ScalarExt = N>,
-        N: FieldExt,
-        const NUMBER_OF_LIMBS: usize,
-        const BIT_LEN_LIMB: usize,
-    > PointRepresentation<C, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB> for LimbRepresentation
+impl<C, N, EccChip, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize> Default
+    for LimbRepresentation<C, N, EccChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
 {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<C, N, EccChip, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
+    PointRepresentation<C, N> for LimbRepresentation<C, N, EccChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+where
+    C: CurveAffine,
+    N: FieldExt,
+    EccChip: EccInstructions<
+        C,
+        N,
+        AssignedPoint = AssignedPoint<AssignedInteger<C::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>,
+    >,
+{
+    type EccChip = EccChip;
+
     fn encode_assigned(
         ctx: &mut RegionCtx<'_, N>,
-        ecc_chip: &BaseFieldEccChip<C, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-        point: &AssignedPoint<C::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
+        ecc_chip: &EccChip,
+        point: &EccChip::AssignedPoint,
     ) -> Result<Vec<AssignedValue<N>>, Error> {
         let mut encoded: Vec<AssignedValue<N>> = point
             .get_x()
@@ -74,20 +94,39 @@ impl<
 }
 
 /// `NativeRepresentation` encodes point as `[native(x),  native(y)]`
-#[derive(Default)]
-pub struct NativeRepresentation;
+pub struct NativeRepresentation<
+    C,
+    N,
+    EccChip,
+    const NUMBER_OF_LIMBS: usize,
+    const BIT_LEN_LIMB: usize,
+>(PhantomData<(C, N, EccChip)>);
 
-impl<
-        C: CurveAffine<ScalarExt = N>,
-        N: FieldExt,
-        const NUMBER_OF_LIMBS: usize,
-        const BIT_LEN_LIMB: usize,
-    > PointRepresentation<C, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB> for NativeRepresentation
+impl<C, N, EccChip, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize> Default
+    for NativeRepresentation<C, N, EccChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
 {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<C, N, EccChip, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
+    PointRepresentation<C, N> for NativeRepresentation<C, N, EccChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+where
+    C: CurveAffine,
+    N: FieldExt,
+    EccChip: EccInstructions<
+        C,
+        N,
+        AssignedPoint = AssignedPoint<AssignedInteger<C::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>,
+    >,
+{
+    type EccChip = EccChip;
+
     fn encode_assigned(
         _: &mut RegionCtx<'_, N>,
-        _: &BaseFieldEccChip<C, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-        point: &AssignedPoint<C::Base, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
+        _: &EccChip,
+        point: &EccChip::AssignedPoint,
     ) -> Result<Vec<AssignedValue<N>>, Error> {
         Ok(vec![
             point.get_x().native().clone(),
@@ -109,44 +148,37 @@ impl<
 }
 
 #[derive(Clone, Debug)]
-pub struct TranscriptChip<
-    C: CurveAffine<ScalarExt = N>,
+pub struct TranscriptChip<C, N, EccChip, E, const T: usize, const RATE: usize>
+where
+    C: CurveAffine,
     N: FieldExt,
-    E: PointRepresentation<C, N, NUMBER_OF_LIMBS, BIT_LEN>,
-    const NUMBER_OF_LIMBS: usize,
-    const BIT_LEN: usize,
-    const T: usize,
-    const RATE: usize,
-> {
-    ecc_chip: BaseFieldEccChip<C, NUMBER_OF_LIMBS, BIT_LEN>,
-    hasher_chip: HasherChip<N, NUMBER_OF_LIMBS, BIT_LEN, T, RATE>,
-    _point_repr: E,
+    EccChip: EccInstructions<C, N>,
+    E: PointRepresentation<C, N>,
+{
+    ecc_chip: EccChip,
+    hasher_chip: HasherChip<N, EccChip::MainGate, T, RATE>,
+    _marker: PhantomData<(C, E)>,
 }
 
-impl<
-        C: CurveAffine<ScalarExt = N>,
-        N: FieldExt,
-        E: PointRepresentation<C, N, NUMBER_OF_LIMBS, BIT_LEN>,
-        const NUMBER_OF_LIMBS: usize,
-        const BIT_LEN: usize,
-        const T: usize,
-        const RATE: usize,
-    > TranscriptChip<C, N, E, NUMBER_OF_LIMBS, BIT_LEN, T, RATE>
+impl<C, N, EccChip, E, const T: usize, const RATE: usize> TranscriptChip<C, N, EccChip, E, T, RATE>
+where
+    C: CurveAffine,
+    N: FieldExt,
+    EccChip: EccInstructions<C, N>,
+    E: PointRepresentation<C, N, EccChip = EccChip>,
 {
     /// Constructs the transcript chip
     pub fn new(
         ctx: &mut RegionCtx<'_, N>,
         spec: &Spec<N, T, RATE>,
-        ecc_chip: BaseFieldEccChip<C, NUMBER_OF_LIMBS, BIT_LEN>,
-        _point_repr: E,
+        ecc_chip: EccChip,
+        _: E,
     ) -> Result<Self, Error> {
-        let main_gate = ecc_chip.main_gate();
-        let main_gate_config = main_gate.config();
-        let hasher_chip = HasherChip::new(ctx, spec, main_gate_config)?;
+        let hasher_chip = HasherChip::new(ctx, spec, ecc_chip.main_gate().clone())?;
         Ok(Self {
             ecc_chip,
             hasher_chip,
-            _point_repr,
+            _marker: PhantomData,
         })
     }
 
@@ -159,7 +191,7 @@ impl<
     pub fn write_point(
         &mut self,
         ctx: &mut RegionCtx<'_, N>,
-        point: &AssignedPoint<C::Base, N, NUMBER_OF_LIMBS, BIT_LEN>,
+        point: &EccChip::AssignedPoint,
     ) -> Result<(), Error> {
         let encoded = E::encode_assigned(ctx, &self.ecc_chip, point)?;
         self.hasher_chip.update(&encoded[..]);
@@ -183,38 +215,35 @@ mod tests {
     use crate::maingate::MainGate;
     use crate::maingate::MainGateConfig;
     use crate::maingate::{MainGateInstructions, RegionCtx};
-    use crate::transcript::LimbRepresentation;
-    use crate::TranscriptChip;
+    use crate::transcript::{LimbRepresentation, TranscriptChip};
     use ecc::halo2::arithmetic::CurveAffine;
     use ecc::halo2::circuit::Value;
     use ecc::integer::rns::Rns;
+    use ecc::integer::IntegerChip;
     use ecc::maingate::RangeChip;
     use ecc::maingate::RangeConfig;
     use ecc::maingate::RangeInstructions;
     use ecc::BaseFieldEccChip;
-    use ecc::EccConfig;
     use group::ff::Field;
     use paste::paste;
     use poseidon::Poseidon;
     use poseidon::Spec;
     use rand_core::OsRng;
+    use std::rc::Rc;
 
     const NUMBER_OF_LIMBS: usize = 4;
     const BIT_LEN_LIMB: usize = 68;
 
-    #[derive(Clone)]
-    struct TestCircuitConfig {
+    #[derive(Clone, Debug)]
+    struct TestCircuitConfig<C: CurveAffine> {
         main_gate_config: MainGateConfig,
         range_config: RangeConfig,
+        rns: Rc<Rns<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>,
     }
 
-    impl TestCircuitConfig {
-        fn ecc_chip_config(&self) -> EccConfig {
-            EccConfig::new(self.range_config.clone(), self.main_gate_config.clone())
-        }
-
-        fn new<C: CurveAffine>(meta: &mut ConstraintSystem<C::Scalar>) -> Self {
-            let rns = Rns::<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>::construct();
+    impl<C: CurveAffine> TestCircuitConfig<C> {
+        fn new(meta: &mut ConstraintSystem<C::Scalar>) -> Self {
+            let rns = Rns::construct();
 
             let main_gate_config = MainGate::<C::Scalar>::configure(meta);
             let overflow_bit_lens = rns.overflow_lengths();
@@ -226,10 +255,34 @@ mod tests {
                 composition_bit_lens,
                 overflow_bit_lens,
             );
+
             TestCircuitConfig {
                 main_gate_config,
                 range_config,
+                rns: Rc::new(rns),
             }
+        }
+
+        fn main_gate(&self) -> MainGate<C::Scalar> {
+            MainGate::new(self.main_gate_config.clone())
+        }
+
+        #[allow(clippy::type_complexity)]
+        fn integer_chip(
+            &self,
+        ) -> IntegerChip<
+            C::Base,
+            C::Scalar,
+            MainGate<C::Scalar>,
+            RangeChip<C::Scalar>,
+            NUMBER_OF_LIMBS,
+            BIT_LEN_LIMB,
+        > {
+            IntegerChip::new(
+                self.main_gate(),
+                RangeChip::new(self.range_config.clone()),
+                self.rns.clone(),
+            )
         }
 
         fn config_range<N: FieldExt>(&self, layouter: &mut impl Layouter<N>) -> Result<(), Error> {
@@ -250,7 +303,7 @@ mod tests {
     impl<C: CurveAffine, const T: usize, const RATE: usize> Circuit<C::Scalar>
         for TestCircuit<C, T, RATE>
     {
-        type Config = TestCircuitConfig;
+        type Config = TestCircuitConfig<C>;
         type FloorPlanner = SimpleFloorPlanner;
 
         fn without_witnesses(&self) -> Self {
@@ -258,7 +311,7 @@ mod tests {
         }
 
         fn configure(meta: &mut ConstraintSystem<C::Scalar>) -> Self::Config {
-            TestCircuitConfig::new::<C>(meta)
+            TestCircuitConfig::new(meta)
         }
 
         fn synthesize(
@@ -266,10 +319,8 @@ mod tests {
             config: Self::Config,
             mut layouter: impl Layouter<C::Scalar>,
         ) -> Result<(), Error> {
-            let main_gate = MainGate::<C::Scalar>::new(config.main_gate_config.clone());
-            let ecc_chip_config = config.ecc_chip_config();
-            let ecc_chip =
-                BaseFieldEccChip::<C, NUMBER_OF_LIMBS, BIT_LEN_LIMB>::new(ecc_chip_config);
+            let ecc_chip = BaseFieldEccChip::<C, _>::new(config.integer_chip());
+            let main_gate = config.main_gate();
 
             // Run test against reference implementation and
             // compare results
@@ -279,13 +330,12 @@ mod tests {
                     let offset = 0;
                     let ctx = &mut RegionCtx::new(region, offset);
 
-                    let mut transcript_chip =
-                        TranscriptChip::<_, _, _, NUMBER_OF_LIMBS, BIT_LEN_LIMB, T, RATE>::new(
-                            ctx,
-                            &self.spec,
-                            ecc_chip.clone(),
-                            LimbRepresentation::default(),
-                        )?;
+                    let mut transcript_chip = TranscriptChip::new(
+                        ctx,
+                        &self.spec,
+                        ecc_chip.clone(),
+                        LimbRepresentation::default(),
+                    )?;
 
                     for e in self.inputs.as_ref().transpose_vec(self.n) {
                         let e = main_gate.assign_value(ctx, e.map(|e| *e))?;
@@ -293,8 +343,7 @@ mod tests {
                     }
                     let challenge = transcript_chip.squeeze(ctx)?;
                     let expected = main_gate.assign_value(ctx, self.expected)?;
-                    main_gate.assert_equal(ctx, &challenge, &expected)?;
-
+                    MainGateInstructions::assert_equal(&main_gate, ctx, &challenge, &expected)?;
                     Ok(())
                 },
             )?;

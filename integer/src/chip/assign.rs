@@ -1,20 +1,26 @@
 use super::{IntegerChip, Range};
 use crate::rns::{Common, Integer};
-use crate::{AssignedInteger, AssignedLimb, UnassignedInteger};
+use crate::{AssignedInteger, AssignedLimb};
 use halo2::arithmetic::FieldExt;
 use halo2::plonk::Error;
+use maingate::halo2::circuit::Value;
 use maingate::{fe_to_big, halo2, MainGateInstructions, RangeInstructions, RegionCtx, Term};
 use num_bigint::BigUint as big_uint;
 use num_traits::One;
 use std::rc::Rc;
 
-impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    IntegerChip<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<W, N, MainGate, RangeChip, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
+    IntegerChip<W, N, MainGate, RangeChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+where
+    W: FieldExt,
+    N: FieldExt,
+    MainGate: MainGateInstructions<N>,
+    RangeChip: RangeInstructions<N>,
 {
     pub(super) fn assign_integer_generic(
         &self,
         ctx: &mut RegionCtx<'_, N>,
-        integer: UnassignedInteger<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
+        integer: Value<Integer<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>>,
         range: Range,
     ) -> Result<AssignedInteger<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
         let range_chip = self.range_chip();
@@ -31,7 +37,6 @@ impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB:
         let max_val = (big_uint::one() << BIT_LEN_LIMB) - 1usize;
 
         let limbs = integer
-            .0
             .map(|integer| integer.limbs())
             .transpose_vec(NUMBER_OF_LIMBS);
         let limbs = match range {

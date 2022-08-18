@@ -1,6 +1,6 @@
 use crate::{
     halo2::{arithmetic::FieldExt, plonk::Error},
-    maingate::{AssignedValue, MainGate, MainGateConfig, MainGateInstructions, RegionCtx, Term},
+    maingate::{AssignedValue, MainGateInstructions, RegionCtx, Term},
 };
 use poseidon::{SparseMDSMatrix, Spec, State};
 
@@ -13,34 +13,26 @@ pub struct AssignedState<F: FieldExt, const T: usize>(pub(super) [AssignedValue<
 #[derive(Debug, Clone)]
 pub(crate) struct HasherChip<
     F: FieldExt,
-    const NUMBER_OF_LIMBS: usize,
-    const BIT_LEN: usize,
+    MainGate: MainGateInstructions<F>,
     const T: usize,
     const RATE: usize,
 > {
     state: AssignedState<F, T>,
     absorbing: Vec<AssignedValue<F>>,
     spec: Spec<F, T, RATE>,
-    main_gate_config: MainGateConfig,
+    main_gate: MainGate,
 }
 
-impl<
-        F: FieldExt,
-        const NUMBER_OF_LIMBS: usize,
-        const BIT_LEN: usize,
-        const T: usize,
-        const RATE: usize,
-    > HasherChip<F, NUMBER_OF_LIMBS, BIT_LEN, T, RATE>
+impl<F: FieldExt, MainGate: MainGateInstructions<F>, const T: usize, const RATE: usize>
+    HasherChip<F, MainGate, T, RATE>
 {
     // Constructs new hasher chip with assigned initial state
     pub(crate) fn new(
         // TODO: we can remove initial state assingment in construction
         ctx: &mut RegionCtx<'_, F>,
         spec: &Spec<F, T, RATE>,
-        main_gate_config: &MainGateConfig,
+        main_gate: MainGate,
     ) -> Result<Self, Error> {
-        let main_gate = MainGate::<_>::new(main_gate_config.clone());
-
         let initial_state = State::<_, T>::default()
             .words()
             .iter()
@@ -51,7 +43,7 @@ impl<
             state: AssignedState(initial_state.try_into().unwrap()),
             spec: spec.clone(),
             absorbing: vec![],
-            main_gate_config: main_gate_config.clone(),
+            main_gate,
         })
     }
 
@@ -62,17 +54,12 @@ impl<
     }
 }
 
-impl<
-        F: FieldExt,
-        const NUMBER_OF_LIMBS: usize,
-        const BIT_LEN: usize,
-        const T: usize,
-        const RATE: usize,
-    > HasherChip<F, NUMBER_OF_LIMBS, BIT_LEN, T, RATE>
+impl<F: FieldExt, MainGate: MainGateInstructions<F>, const T: usize, const RATE: usize>
+    HasherChip<F, MainGate, T, RATE>
 {
     /// Construct main gate
-    pub(super) fn main_gate(&self) -> MainGate<F> {
-        MainGate::<_>::new(self.main_gate_config.clone())
+    pub(super) fn main_gate(&self) -> &MainGate {
+        &self.main_gate
     }
 
     /*
@@ -108,21 +95,15 @@ impl<
     }
 }
 
-impl<
-        F: FieldExt,
-        const NUMBER_OF_LIMBS: usize,
-        const BIT_LEN: usize,
-        const T: usize,
-        const RATE: usize,
-    > HasherChip<F, NUMBER_OF_LIMBS, BIT_LEN, T, RATE>
+impl<F: FieldExt, MainGate: MainGateInstructions<F>, const T: usize, const RATE: usize>
+    HasherChip<F, MainGate, T, RATE>
 {
     /// Applies full state sbox then adds constants to each word in the state
     fn sbox_full(&mut self, ctx: &mut RegionCtx<'_, F>, constants: &[F; T]) -> Result<(), Error> {
-        let main_gate = self.main_gate();
         for (word, constant) in self.state.0.iter_mut().zip(constants.iter()) {
-            let t = main_gate.mul(ctx, word, word)?;
-            let t = main_gate.mul(ctx, &t, &t)?;
-            *word = main_gate.mul_add_constant(ctx, &t, word, *constant)?;
+            let t = self.main_gate.mul(ctx, word, word)?;
+            let t = self.main_gate.mul(ctx, &t, &t)?;
+            *word = self.main_gate.mul_add_constant(ctx, &t, word, *constant)?;
         }
         Ok(())
     }
@@ -130,11 +111,10 @@ impl<
     /// Applies sbox to the first word then adds constants to each word in the
     /// state
     fn sbox_part(&mut self, ctx: &mut RegionCtx<'_, F>, constant: F) -> Result<(), Error> {
-        let main_gate = self.main_gate();
         let word = &mut self.state.0[0];
-        let t = main_gate.mul(ctx, word, word)?;
-        let t = main_gate.mul(ctx, &t, &t)?;
-        *word = main_gate.mul_add_constant(ctx, &t, word, constant)?;
+        let t = self.main_gate.mul(ctx, word, word)?;
+        let t = self.main_gate.mul(ctx, &t, &t)?;
+        *word = self.main_gate.mul_add_constant(ctx, &t, word, constant)?;
 
         Ok(())
     }
@@ -152,11 +132,10 @@ impl<
     ) -> Result<(), Error> {
         assert!(inputs.len() < T);
         let offset = inputs.len() + 1;
-        let main_gate = self.main_gate();
 
         // Add the first constant to the first word
         self.state.0[0] = self
-            .main_gate()
+            .main_gate
             .add_constant(ctx, &self.state.0[0], pre_constants[0])?;
 
         // Add inputs along with constants
@@ -168,7 +147,9 @@ impl<
             .zip(pre_constants.iter().skip(1))
             .zip(inputs.iter())
         {
-            *word = main_gate.add_with_constant(ctx, word, input, *constant)?;
+            *word = self
+                .main_gate
+                .add_with_constant(ctx, word, input, *constant)?;
         }
 
         // Padding
@@ -180,7 +161,7 @@ impl<
             .zip(pre_constants.iter().skip(offset))
             .enumerate()
         {
-            *word = main_gate.add_constant(
+            *word = self.main_gate.add_constant(
                 ctx,
                 word,
                 if i == 0 {

@@ -1,13 +1,17 @@
 use super::AssignedPoint;
 use super::BaseFieldEccChip;
+use super::NativeInstructions;
 use crate::halo2;
 use halo2::arithmetic::CurveAffine;
 use halo2::plonk::Error;
 use integer::maingate::RegionCtx;
 use integer::IntegerInstructions;
 
-impl<C: CurveAffine, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    BaseFieldEccChip<C, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<C, BaseFieldChip> BaseFieldEccChip<C, BaseFieldChip>
+where
+    C: CurveAffine,
+    BaseFieldChip: IntegerInstructions<C::Base, C::ScalarExt>,
+    BaseFieldChip::MainGate: NativeInstructions<C::Scalar>,
 {
     /// Optimized point addition algorithm
     ///
@@ -17,10 +21,10 @@ impl<C: CurveAffine, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
     pub(crate) fn _add_incomplete_unsafe(
         &self,
         ctx: &mut RegionCtx<'_, C::Scalar>,
-        a: &AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-        b: &AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-    ) -> Result<AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
-        let ch = self.integer_chip();
+        a: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+        b: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
+        let ch = self.base_field_chip();
 
         // lambda = b_y - a_y / b_x - a_x
         let numerator = &ch.sub(ctx, &b.y, &a.y)?;
@@ -47,24 +51,24 @@ impl<C: CurveAffine, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
     pub(crate) fn _double_incomplete(
         &self,
         ctx: &mut RegionCtx<'_, C::Scalar>,
-        point: &AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-    ) -> Result<AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
-        let integer_chip = self.integer_chip();
+        point: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
+        let base_field_chip = self.base_field_chip();
 
         // lambda = (3 * a_x^2) / 2 * a_y
-        let x_0_square = &integer_chip.square(ctx, &point.x)?;
-        let numerator = &integer_chip.mul3(ctx, x_0_square)?;
-        let denominator = &integer_chip.mul2(ctx, &point.y)?;
-        let lambda = &integer_chip.div_incomplete(ctx, numerator, denominator)?;
+        let x_0_square = &base_field_chip.square(ctx, &point.x)?;
+        let numerator = &base_field_chip.mul3(ctx, x_0_square)?;
+        let denominator = &base_field_chip.mul2(ctx, &point.y)?;
+        let lambda = &base_field_chip.div_incomplete(ctx, numerator, denominator)?;
 
         // c_x = lambda * lambda - 2 * a_x
-        let lambda_square = &integer_chip.square(ctx, lambda)?;
-        let x = &integer_chip.sub_sub(ctx, lambda_square, &point.x, &point.x)?;
+        let lambda_square = &base_field_chip.square(ctx, lambda)?;
+        let x = &base_field_chip.sub_sub(ctx, lambda_square, &point.x, &point.x)?;
 
         // c_y = lambda * (a_x - c_x) - a_y
-        let t = &integer_chip.sub(ctx, &point.x, x)?;
-        let t = &integer_chip.mul(ctx, lambda, t)?;
-        let y = integer_chip.sub(ctx, t, &point.y)?;
+        let t = &base_field_chip.sub(ctx, &point.x, x)?;
+        let t = &base_field_chip.mul(ctx, lambda, t)?;
+        let y = base_field_chip.sub(ctx, t, &point.y)?;
 
         Ok(AssignedPoint::new(x.clone(), y))
     }
@@ -75,10 +79,10 @@ impl<C: CurveAffine, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
     pub(crate) fn _ladder_incomplete(
         &self,
         ctx: &mut RegionCtx<'_, C::Scalar>,
-        to_double: &AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-        to_add: &AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>,
-    ) -> Result<AssignedPoint<C::Base, C::Scalar, NUMBER_OF_LIMBS, BIT_LEN_LIMB>, Error> {
-        let ch = self.integer_chip();
+        to_double: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+        to_add: &AssignedPoint<BaseFieldChip::AssignedInteger>,
+    ) -> Result<AssignedPoint<BaseFieldChip::AssignedInteger>, Error> {
+        let ch = self.base_field_chip();
 
         // (P + Q) + P
         // P is to_double (x_1, y_1)

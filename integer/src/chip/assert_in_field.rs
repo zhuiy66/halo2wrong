@@ -2,11 +2,17 @@ use super::{IntegerChip, Range};
 use crate::{AssignedInteger, FieldExt};
 use halo2::plonk::Error;
 use maingate::{
-    halo2, AssignedValue, CombinationOptionCommon, MainGateInstructions, RegionCtx, Term,
+    halo2, AssignedValue, CombinationOptionCommon, MainGateInstructions, RangeInstructions,
+    RegionCtx, Term,
 };
 
-impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    IntegerChip<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<W, N, MainGate, RangeChip, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
+    IntegerChip<W, N, MainGate, RangeChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+where
+    W: FieldExt,
+    N: FieldExt,
+    MainGate: MainGateInstructions<N>,
+    RangeChip: RangeInstructions<N>,
 {
     pub(super) fn assert_in_field_generic(
         &self,
@@ -29,7 +35,7 @@ impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB:
         // range
         let comparision_witness = integer.as_ref().map(|integer| integer.compare_to_modulus());
         let result = comparision_witness.as_ref().map(|r| r.result.clone());
-        let result = &self.assign_integer_generic(ctx, result.into(), Range::Remainder)?;
+        let result = &self.assign_integer_generic(ctx, result, Range::Remainder)?;
 
         // assert borrow values are bits
         let borrow = comparision_witness.as_ref().map(|r| r.borrow);

@@ -2,12 +2,18 @@ use super::{IntegerChip, IntegerInstructions, Range};
 use crate::{rns::Integer, AssignedInteger, FieldExt};
 use halo2::plonk::Error;
 use maingate::{
-    halo2, AssignedCondition, CombinationOptionCommon, MainGateInstructions, RegionCtx, Term,
+    halo2, AssignedCondition, CombinationOptionCommon, MainGateInstructions, RangeInstructions,
+    RegionCtx, Term,
 };
 use std::rc::Rc;
 
-impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
-    IntegerChip<W, N, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+impl<W, N, MainGate, RangeChip, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
+    IntegerChip<W, N, MainGate, RangeChip, NUMBER_OF_LIMBS, BIT_LEN_LIMB>
+where
+    W: FieldExt,
+    N: FieldExt,
+    MainGate: MainGateInstructions<N>,
+    RangeChip: RangeInstructions<N>,
 {
     pub(super) fn invert_generic(
         &self,
@@ -31,7 +37,7 @@ impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB:
         // 1. extend mul to support prenormalized value.
         // 2. call normalize here.
         // 3. add wrong field range check on inv.
-        let inv_or_one = self.assign_integer(ctx, inv_or_one.into(), Range::Remainder)?;
+        let inv_or_one = self.assign_integer(ctx, inv_or_one, Range::Remainder)?;
         let a_mul_inv = &self.mul(ctx, a, &inv_or_one)?;
 
         // We believe the mul result is strictly less than wrong modulus, so we add
@@ -84,7 +90,7 @@ impl<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB:
                 Integer::from_big(1u32.into(), Rc::clone(&self.rns))
             })
         });
-        let inv = self.assign_integer(ctx, inv.into(), Range::Remainder)?;
+        let inv = self.assign_integer(ctx, inv, Range::Remainder)?;
         self.mul_into_one(ctx, a, &inv)?;
         Ok(inv)
     }
