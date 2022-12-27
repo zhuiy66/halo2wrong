@@ -603,7 +603,7 @@ mod tests {
             public_input,
             _marker: PhantomData,
         };
-        let prover = match MockProver::run(K, &circuit, public_inputs) {
+        let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
             Ok(prover) => prover,
             Err(e) => panic!("{:#?}", e),
         };
@@ -880,7 +880,7 @@ mod tests {
             _marker: PhantomData,
         };
         let public_inputs = vec![vec![]];
-        let prover = match MockProver::run(K, &circuit, public_inputs) {
+        let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
             Ok(prover) => prover,
             Err(e) => panic!("{:#?}", e),
         };
@@ -951,7 +951,7 @@ mod tests {
             _marker: PhantomData,
         };
         let public_inputs = vec![vec![]];
-        let prover = match MockProver::run(K, &circuit, public_inputs) {
+        let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
             Ok(prover) => prover,
             Err(e) => panic!("{:#?}", e),
         };
@@ -962,7 +962,7 @@ mod tests {
             _marker: PhantomData,
         };
         let public_inputs = vec![vec![]];
-        let prover = match MockProver::run(K, &circuit, public_inputs) {
+        let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
             Ok(prover) => prover,
             Err(e) => panic!("{:#?}", e),
         };
@@ -1083,7 +1083,7 @@ mod tests {
             _marker: PhantomData,
         };
         let public_inputs = vec![vec![]];
-        let prover = match MockProver::run(K, &circuit, public_inputs) {
+        let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
             Ok(prover) => prover,
             Err(e) => panic!("{:#?}", e),
         };
@@ -1232,7 +1232,7 @@ mod tests {
             _marker: PhantomData::<Fp>,
         };
         let public_inputs = vec![vec![]];
-        let prover = match MockProver::run(K, &circuit, public_inputs) {
+        let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
             Ok(prover) => prover,
             Err(e) => panic!("{:#?}", e),
         };
@@ -1348,7 +1348,7 @@ mod tests {
             _marker: PhantomData::<Fp>,
         };
         let public_inputs = vec![vec![]];
-        let prover = match MockProver::run(K, &circuit, public_inputs) {
+        let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
             Ok(prover) => prover,
             Err(e) => panic!("{:#?}", e),
         };
@@ -1442,7 +1442,7 @@ mod tests {
             };
 
             let public_inputs = vec![vec![]];
-            let prover = match MockProver::run(K, &circuit, public_inputs) {
+            let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
                 Ok(prover) => prover,
                 Err(e) => panic!("{:#?}", e),
             };
@@ -1515,7 +1515,7 @@ mod tests {
             _marker: PhantomData::<Fp>,
         };
         let public_inputs = vec![vec![]];
-        let prover = match MockProver::run(K, &circuit, public_inputs) {
+        let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
             Ok(prover) => prover,
             Err(e) => panic!("{:#?}", e),
         };
@@ -1583,7 +1583,7 @@ mod tests {
             _marker: PhantomData::<Fp>,
         };
         let public_inputs = vec![vec![]];
-        let prover = match MockProver::run(K, &circuit, public_inputs) {
+        let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
             Ok(prover) => prover,
             Err(e) => panic!("{:#?}", e),
         };

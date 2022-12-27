@@ -69,7 +69,7 @@ pub fn mock_prover_verify<F: FromUniformBytes<64> + Ord, C: Circuit<F>>(
     instance: Vec<Vec<F>>,
 ) {
     let dimension = DimensionMeasurement::measure(circuit).unwrap();
-    let prover = MockProver::run(dimension.k(), circuit, instance)
+    let prover = MockProver::run::<_, true>(dimension.k(), circuit, instance)
         .unwrap_or_else(|err| panic!("{:#?}", err));
     assert_eq!(
         prover.verify_at_rows_par(dimension.advice_range(), dimension.advice_range()),
@@ -128,7 +128,7 @@ impl DimensionMeasurement {
         let mut measurement = Self::default();
         C::FloorPlanner::synthesize(&mut measurement, circuit, config, cs.constants().to_vec())?;
         Ok(Dimension {
-            blinding_factor: cs.blinding_factors() as u64,
+            blinding_factor: cs.blinding_factors::<true>() as u64,
             instance: measurement.instance.take(),
             advice: measurement.advice.take(),
             fixed: measurement.fixed.take(),
