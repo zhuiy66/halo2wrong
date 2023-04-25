@@ -142,6 +142,7 @@ impl<F: FieldExt, const LOOKUP_WIDTH: usize> Gate<F> for MainGate<F, LOOKUP_WIDT
                 for (id0, id1) in collector.copies.iter() {
                     ctx.copy(*id0, *id1)?;
                 }
+                dbg!(ctx.offset);
                 Ok(ctx.cell_map())
             },
         )?;

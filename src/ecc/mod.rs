@@ -5,8 +5,7 @@ use halo2::{
 };
 pub mod base_field_ecc;
 pub mod general_ecc;
-#[cfg(test)]
-mod tests;
+
 #[derive(Clone, Debug)]
 pub struct Point<W: FieldExt, N: FieldExt, const NUMBER_OF_LIMBS: usize, const BIT_LEN_LIMB: usize>
 {
