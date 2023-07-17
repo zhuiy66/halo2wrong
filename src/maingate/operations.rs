@@ -1,5 +1,8 @@
 use crate::{Composable, Scaled, Term, Witness};
-use halo2_proofs::{circuit::Value, halo2curves::group::ff::PrimeField};
+use halo2_proofs::{
+    circuit::{AssignedCell, Value},
+    halo2curves::group::ff::PrimeField,
+};
 use num_integer::Integer;
 use std::{collections::BTreeMap, fmt::Debug};
 
@@ -142,6 +145,7 @@ pub struct Collector<F: PrimeField> {
     pub(crate) constants: BTreeMap<F, Witness<F>>,
     bases: BTreeMap<usize, Vec<F>>,
     pub(crate) lookups: BTreeMap<usize, Vec<Witness<F>>>,
+    pub external: BTreeMap<u32, AssignedCell<F, F>>,
 }
 impl<F: PrimeField> Collector<F> {
     pub fn equal(&mut self, w0: &Witness<F>, w1: &Witness<F>) {
@@ -176,12 +180,17 @@ impl<F: PrimeField + Ord> Collector<F> {
     }
 }
 impl<F: PrimeField + Ord> Collector<F> {
-    pub(crate) fn new_witness(&mut self, value: Value<F>) -> Witness<F> {
+    pub fn new_witness(&mut self, value: Value<F>) -> Witness<F> {
         self.number_of_witnesses += 1;
         Witness {
             id: self.number_of_witnesses,
             value,
         }
+    }
+    pub fn new_external(&mut self, assigned: &AssignedCell<F, F>) -> Witness<F> {
+        let witness = self.new_witness(assigned.value().copied());
+        self.external.insert(witness.id, assigned.clone());
+        witness
     }
     pub(crate) fn bases(&mut self, bit_len: usize) -> Vec<F> {
         self.bases

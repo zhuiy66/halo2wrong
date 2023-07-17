@@ -5,13 +5,18 @@ use self::{
 };
 use crate::{maingate::operations::Operation, RegionCtx};
 use halo2_proofs::{
-    circuit::Layouter,
+    circuit::{AssignedCell, Layouter},
     halo2curves::ff::PrimeField,
     plonk::{ConstraintSystem, Error},
 };
+use std::collections::BTreeMap;
 
 pub trait Gate<F: PrimeField>: Clone {
-    fn layout(&self, ly: &mut impl Layouter<F>, collector: &Collector<F>) -> Result<(), Error>;
+    fn layout(
+        &self,
+        ly: &mut impl Layouter<F>,
+        collector: &Collector<F>,
+    ) -> Result<BTreeMap<u32, AssignedCell<F, F>>, Error>;
     fn configure(
         meta: &mut ConstraintSystem<F>,
         composition_bit_lenghts: Vec<usize>,
@@ -80,11 +85,15 @@ impl<F: PrimeField, const LOOKUP_WIDTH: usize> Gate<F> for MainGate<F, LOOKUP_WI
     ) -> Self {
         Self::_configure(meta, composition_bit_lenghts, overflow_bit_lenghts)
     }
-    fn layout(&self, ly: &mut impl Layouter<F>, collector: &Collector<F>) -> Result<(), Error> {
+    fn layout(
+        &self,
+        ly: &mut impl Layouter<F>,
+        collector: &Collector<F>,
+    ) -> Result<BTreeMap<u32, AssignedCell<F, F>>, Error> {
         let cell_map = ly.assign_region(
             || "",
             |region| {
-                let ctx = &mut RegionCtx::new(region);
+                let ctx = &mut RegionCtx::with_map(region, collector.external.clone());
                 let offset = std::cmp::min(
                     collector.simple_operations.len(),
                     collector.constant_operations.len(),
@@ -149,7 +158,7 @@ impl<F: PrimeField, const LOOKUP_WIDTH: usize> Gate<F> for MainGate<F, LOOKUP_WI
         self.extended_gate
             .lookup_gate
             .layout(ly, &cell_map, &collector.lookups)?;
-        Ok(())
+        Ok(cell_map)
     }
 }
 impl<F: PrimeField, const LOOKUP_WIDTH: usize> Gate<F> for ExtendedGate<F, LOOKUP_WIDTH> {
@@ -160,11 +169,15 @@ impl<F: PrimeField, const LOOKUP_WIDTH: usize> Gate<F> for ExtendedGate<F, LOOKU
     ) -> Self {
         Self::_configure(meta, composition_bit_lenghts, overflow_bit_lenghts)
     }
-    fn layout(&self, ly: &mut impl Layouter<F>, collector: &Collector<F>) -> Result<(), Error> {
+    fn layout(
+        &self,
+        ly: &mut impl Layouter<F>,
+        collector: &Collector<F>,
+    ) -> Result<BTreeMap<u32, AssignedCell<F, F>>, Error> {
         let cell_map = ly.assign_region(
             || "",
             |region| {
-                let ctx = &mut RegionCtx::new(region);
+                let ctx = &mut RegionCtx::with_map(region, collector.external.clone());
                 for op in collector.simple_operations.iter() {
                     self.assign_op(ctx, op)?;
                     ctx.next();
@@ -185,7 +198,7 @@ impl<F: PrimeField, const LOOKUP_WIDTH: usize> Gate<F> for ExtendedGate<F, LOOKU
             },
         )?;
         self.lookup_gate.layout(ly, &cell_map, &collector.lookups)?;
-        Ok(())
+        Ok(cell_map)
     }
 }
 

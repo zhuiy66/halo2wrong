@@ -30,7 +30,7 @@ impl<F: PrimeField> Limb<F> {
     pub(crate) fn value(&self) -> Value<F> {
         self.witness.value()
     }
-    pub(crate) fn witness(&self) -> Witness<F> {
+    pub fn witness(&self) -> Witness<F> {
         self.witness
     }
     pub(crate) fn max(&self) -> Big {

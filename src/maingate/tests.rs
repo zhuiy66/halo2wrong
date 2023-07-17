@@ -294,7 +294,8 @@ impl<F: PrimeField + Ord, G: Gate<F> + Clone> Circuit<F> for MyCircuit1<F, G> {
         {
             o.info();
         }
-        config.gate.layout(ly, &o)
+        config.gate.layout(ly, &o)?;
+        Ok(())
     }
 }
 #[test]
@@ -305,7 +306,7 @@ fn test_arithmetic() {
         _marker: PhantomData::<_>,
     };
     let public_inputs = vec![vec![]];
-    let prover = match MockProver::run(K, &circuit, public_inputs) {
+    let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
         Ok(prover) => prover,
         Err(e) => panic!("{:#?}", e),
     };
@@ -315,7 +316,7 @@ fn test_arithmetic() {
         _marker: PhantomData::<_>,
     };
     let public_inputs = vec![vec![]];
-    let prover = match MockProver::run(K, &circuit, public_inputs) {
+    let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
         Ok(prover) => prover,
         Err(e) => panic!("{:#?}", e),
     };
@@ -397,7 +398,7 @@ fn test_lookup() {
         _marker: PhantomData::<_>,
     };
     let public_inputs = vec![vec![]];
-    let prover = match MockProver::run(K, &circuit, public_inputs) {
+    let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
         Ok(prover) => prover,
         Err(e) => panic!("{:#?}", e),
     };
@@ -407,7 +408,7 @@ fn test_lookup() {
         _marker: PhantomData::<_>,
     };
     let public_inputs = vec![vec![]];
-    let prover = match MockProver::run(K, &circuit, public_inputs) {
+    let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
         Ok(prover) => prover,
         Err(e) => panic!("{:#?}", e),
     };
@@ -529,7 +530,7 @@ fn test_decomposition() {
         _marker: PhantomData::<_>,
     };
     let public_inputs = vec![vec![]];
-    let prover = match MockProver::run(K, &circuit, public_inputs) {
+    let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
         Ok(prover) => prover,
         Err(e) => panic!("{:#?}", e),
     };
@@ -539,7 +540,7 @@ fn test_decomposition() {
         _marker: PhantomData::<_>,
     };
     let public_inputs = vec![vec![]];
-    let prover = match MockProver::run(K, &circuit, public_inputs) {
+    let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
         Ok(prover) => prover,
         Err(e) => panic!("{:#?}", e),
     };

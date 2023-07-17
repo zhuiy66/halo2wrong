@@ -344,7 +344,8 @@ impl<
             ch.copy_equal(&u0, &u1);
             ch.assert_equal(&u0, &u1);
         }
-        config.maingate.layout(&mut ly, ch.o)
+        config.maingate.layout(&mut ly, ch.o)?;
+        Ok(())
     }
 }
 #[test]
@@ -375,7 +376,7 @@ fn test_integer() {
         _marker: PhantomData,
     };
     let public_inputs = vec![vec![]];
-    let prover = match MockProver::run(K, &circuit, public_inputs) {
+    let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
         Ok(prover) => prover,
         Err(e) => panic!("{:#}", e),
     };

@@ -480,7 +480,8 @@ mod tests {
             let res1 = ch.mul_fix(a, &e, 3);
             ch.assert_equal(&res0, &res1);
 
-            config.maingate.layout(&mut ly, o)
+            config.maingate.layout(&mut ly, o)?;
+            Ok(())
         }
     }
     #[test]
@@ -507,7 +508,7 @@ mod tests {
             _marker: PhantomData,
         };
         let public_inputs = vec![vec![]];
-        let prover = match MockProver::run(K, &circuit, public_inputs) {
+        let prover = match MockProver::run::<_, true>(K, &circuit, public_inputs) {
             Ok(prover) => prover,
             Err(e) => panic!("{:#?}", e),
         };

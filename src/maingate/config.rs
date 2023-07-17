@@ -62,12 +62,12 @@ impl<F: PrimeField, const LOOKUP_WIDTH: usize> ExtendedGate<F, LOOKUP_WIDTH> {
 
         let s_next = meta.fixed_column();
         let constant = meta.fixed_column();
-        let instance = meta.instance_column();
+        // let instance = meta.instance_column();
 
         meta.enable_equality(a1);
         meta.enable_equality(b1);
         meta.enable_equality(c1);
-        meta.enable_equality(instance);
+        // meta.enable_equality(instance);
 
         meta.create_gate("maingate", |meta| {
             let a1 = meta.query_advice(a1, Rotation::cur());
@@ -138,7 +138,7 @@ impl<F: PrimeField, const LOOKUP_WIDTH: usize> MainGate<F, LOOKUP_WIDTH> {
 
         let s_next = meta.fixed_column();
         let constant = meta.fixed_column();
-        let instance = meta.instance_column();
+        // let instance = meta.instance_column();
 
         meta.enable_equality(a0);
         meta.enable_equality(b0);
@@ -146,7 +146,7 @@ impl<F: PrimeField, const LOOKUP_WIDTH: usize> MainGate<F, LOOKUP_WIDTH> {
         meta.enable_equality(a1);
         meta.enable_equality(b1);
         meta.enable_equality(c1);
-        meta.enable_equality(instance);
+        // meta.enable_equality(instance);
 
         let q_isolate_simple = meta.selector();
         let q_isolate_extended = meta.selector();
